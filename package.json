@@ -1,0 +1,35 @@
+{
+  "name": "rabblebabble",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config src/vite.config.mjs",
+    "build": "tsc --noEmit && vite build --config src/vite.config.mjs",
+    "preview": "vite preview --config src/vite.config.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "latest",
+    "@eslint/js": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "globals": "latest",
+    "jsdom": "^29.1.1",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vite": "latest",
+    "@vitejs/plugin-basic-ssl": "latest",
+    "vite-plugin-pwa": "latest",
+    "vitest": "latest"
+  }
+}
