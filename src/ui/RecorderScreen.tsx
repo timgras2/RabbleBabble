@@ -52,6 +52,18 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
         <p className="hero-copy">Record a thought, get a clean transcript, and copy it wherever it belongs.</p>
       </section>
 
+      {hasResult && dictation.result && (
+        <section className="result-card result-card--top" aria-label="Transcript">
+          <div className="result-card__header"><span>Final transcript</span><span className="result-card__check"><Check size={14} /> Ready</span></div>
+          <p>{dictation.result.finalText}</p>
+          {dictation.result.cleanupFailed && (
+            <div className="inline-warning"><Info size={15} /> Cleanup was unavailable, so the raw transcript is shown.</div>
+          )}
+          <button type="button" className="copy-button" onClick={copy}><Clipboard size={17} /> Copy text</button>
+          {copyStatus && <div className={`copy-status copy-status--${copyStatus.kind}`} role="status">{copyStatus.message}</div>}
+        </section>
+      )}
+
       <section className="recorder-card" aria-label="Recorder">
         <RecordButton state={dictation.state} onStart={start} onStop={stop} />
         {(dictation.state === "transcribing" || dictation.state === "cleaning") && (
@@ -75,18 +87,6 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
             <button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button>
           ) : null}
         </div>
-      )}
-
-      {hasResult && dictation.result && (
-        <section className="result-card" aria-label="Transcript">
-          <div className="result-card__header"><span>Final transcript</span><span className="result-card__check"><Check size={14} /> Ready</span></div>
-          <p>{dictation.result.finalText}</p>
-          {dictation.result.cleanupFailed && (
-            <div className="inline-warning"><Info size={15} /> Cleanup was unavailable, so the raw transcript is shown.</div>
-          )}
-          <button type="button" className="copy-button" onClick={copy}><Clipboard size={17} /> Copy text</button>
-          {copyStatus && <div className={`copy-status copy-status--${copyStatus.kind}`} role="status">{copyStatus.message}</div>}
-        </section>
       )}
 
       <div className="trust-line"><ShieldCheck size={16} /> Audio is sent only when you stop recording. Nothing is saved as history.</div>
