@@ -5,6 +5,7 @@ export type DictationState =
   | "recording"
   | "transcribing"
   | "cleaning"
+  | "rewriting"
   | "completed"
   | "error";
 
@@ -20,6 +21,7 @@ export interface DictationFlow {
   readonly result: DictationResult | null;
   start(): Promise<void>;
   stop(): Promise<DictationResult>;
+  rewrite(instruction: string): Promise<DictationResult>;
   cancel(): Promise<void>;
   subscribe(listener: (state: DictationState) => void): Unsubscribe;
 }

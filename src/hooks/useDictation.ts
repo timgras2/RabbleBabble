@@ -31,12 +31,25 @@ export function useDictation(services: AppServices) {
     }
   };
 
+  const rewrite = async (instruction: string) => {
+    setError(null);
+    try {
+      return await flow.rewrite(instruction);
+    } catch (caught) {
+      const error = asAdapterError(caught);
+      if (error.code !== "cancelled") {
+        setError(error);
+      }
+      throw caught;
+    }
+  };
+
   const cancel = async () => {
     await flow.cancel();
     setError(null);
   };
 
-  return { state, result: flow.result, error, start, stop, cancel };
+  return { state, result: flow.result, error, start, stop, rewrite, cancel };
 }
 
 function asAdapterError(error: unknown): AdapterError {

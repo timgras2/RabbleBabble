@@ -9,7 +9,7 @@ interface RecordButtonProps {
 
 export function RecordButton({ state, onStart, onStop }: RecordButtonProps) {
   const recording = state === "recording";
-  const busy = state === "transcribing" || state === "cleaning";
+  const busy = state === "transcribing" || state === "cleaning" || state === "rewriting";
   const disabled = busy;
   const label = recording
     ? "Stop recording"
@@ -17,6 +17,8 @@ export function RecordButton({ state, onStart, onStop }: RecordButtonProps) {
       ? "Transcribing"
       : state === "cleaning"
         ? "Cleaning transcript"
+        : state === "rewriting"
+          ? "Rewriting transcript"
         : "Start recording";
 
   return (

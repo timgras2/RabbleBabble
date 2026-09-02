@@ -8,7 +8,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #f7f6f2; }
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
@@ -54,6 +54,19 @@ h1 em { color: #ef765d; font-style: normal; }
 .result-card p { margin: 20px 0 22px; color: #27343e; font-family: Georgia, "Times New Roman", serif; font-size: 22px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .copy-button, .primary-button { min-height: 46px; border: 0; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; color: #fffaf1; background: #17212b; font-size: 13px; font-weight: 800; }
 .copy-button { width: 100%; }
+.rewrite-trigger { width: 100%; min-height: 44px; margin: 0 0 12px; border: 1px solid #dedbd3; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: #536069; background: transparent; font-size: 13px; font-weight: 800; }
+.rewrite-trigger:hover { border-color: #ef765d; color: #c85642; }
+.rewrite-form { margin: 0 0 14px; padding: 15px; border: 1px solid #e8e3d8; border-radius: 14px; background: #f8f6f0; }
+.rewrite-form label { display: block; margin-bottom: 9px; color: #34414a; font-size: 12px; font-weight: 800; }
+.rewrite-form textarea { width: 100%; min-height: 92px; padding: 11px 12px; border: 1px solid #dedbd3; border-radius: 10px; resize: vertical; outline: 0; color: #27343e; background: #fff; font-size: 13px; line-height: 1.45; }
+.rewrite-form textarea:focus { border-color: #ef765d; box-shadow: 0 0 0 3px rgba(239,118,93,.12); }
+.rewrite-form textarea:disabled { opacity: .65; }
+.rewrite-form__meta { margin-top: 5px; color: #9aa1a3; font-size: 10px; text-align: right; }
+.rewrite-form__actions { margin-top: 11px; display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.rewrite-form__apply, .rewrite-form__cancel { min-height: 40px; border-radius: 10px; font-size: 12px; font-weight: 800; }
+.rewrite-form__apply { border: 0; color: #fffaf1; background: #ef765d; }
+.rewrite-form__apply:disabled { cursor: not-allowed; opacity: .55; }
+.rewrite-form__cancel { padding: 0 14px; border: 1px solid #dedbd3; color: #66717a; background: transparent; }
 .inline-warning, .copy-status { margin: 0 0 15px; display: flex; align-items: center; gap: 6px; color: #a36b2d; font-size: 12px; line-height: 1.4; }
 .copy-status { margin: 11px 0 0; color: #4e8d71; justify-content: center; }
 .copy-status--error { color: #b05243; }

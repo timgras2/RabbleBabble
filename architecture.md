@@ -110,6 +110,9 @@ export type AdapterErrorCode =
   | "api-server"
   | "api-timeout"
   | "empty-transcript"
+  | "invalid-instruction"
+  | "rewrite-too-large"
+  | "cancelled"
   | "clipboard-unavailable"
   | "clipboard-denied";
 
@@ -208,7 +211,7 @@ const DEFAULT_SETTINGS: Settings = {
 ```
 
 No history store exists in v1. The transcription model
-`whisper-large-v3-turbo` and cleanup model `llama-3.1-8b-instant` are fixed constants in
+`whisper-large-v3-turbo` and cleanup model `openai/gpt-oss-20b` are fixed constants in
 `groqClient.ts`; they are not free-form settings. The Clear API Key action calls
 `clearApiKey` only after a confirmation or explicit user action; it must not silently
 clear the other settings.
@@ -260,6 +263,10 @@ export interface GroqCleanupResponse {
   readonly text: string;
 }
 
+export interface GroqRewriteResponse {
+  readonly text: string;
+}
+
 export interface GroqClient {
   transcribe(request: {
     readonly apiKey: string;
@@ -273,11 +280,18 @@ export interface GroqClient {
     readonly text: string;
     readonly signal?: AbortSignal;
   }): Promise<GroqCleanupResponse>;
+
+  rewrite(request: {
+    readonly apiKey: string;
+    readonly text: string;
+    readonly instruction: string;
+    readonly signal?: AbortSignal;
+  }): Promise<GroqRewriteResponse>;
 }
 ```
 
 `groqClient.ts` uses the fixed transcription model `whisper-large-v3-turbo` and cleanup
-model `llama-3.1-8b-instant` and:
+model `openai/gpt-oss-20b` and:
 
 ```text
 https://api.groq.com/openai/v1/audio/transcriptions
@@ -303,6 +317,13 @@ Output ONLY the cleaned text:
 <raw transcript>
 ```
 
+The rewrite operation uses the same cleanup model and chat endpoint, but has a separate
+prompt. It applies a user-provided instruction to the current final transcript, preserves
+facts and meaning unless explicitly asked otherwise, treats the transcript as content to
+edit rather than instructions, and outputs only the rewritten text. The instruction and
+transcript are sent as separate JSON fields in the user message. Rewrite input is limited
+to 20,000 transcript characters and 2,000 instruction characters.
+
 ### 4.6 Dictation Flow
 
 File: `src/services/types.ts`
@@ -315,6 +336,7 @@ export type DictationState =
   | "recording"
   | "transcribing"
   | "cleaning"
+  | "rewriting"
   | "completed"
   | "error";
 
@@ -330,6 +352,7 @@ export interface DictationFlow {
   readonly result: DictationResult | null;
   start(): Promise<void>;
   stop(): Promise<DictationResult>;
+  rewrite(instruction: string): Promise<DictationResult>;
   cancel(): Promise<void>;
   subscribe(listener: (state: DictationState) => void): Unsubscribe;
 }
@@ -347,12 +370,20 @@ if cleanup fails: return raw text with cleanupFailed=true
 show result
 ```
 
+After a completed result, `rewrite(instruction)` sends the current `finalText` and the
+instruction to Groq. A successful rewrite replaces only `finalText`; repeated rewrites
+use the latest final text. Rewrite failures and cancellations preserve the previous result
+and return to `completed`.
+
 `start()` is valid from `idle`, `completed`, or `error`; repeated starts during an active
 operation are rejected safely and a successful new recording clears the previous result.
 `stop()` is valid only while recording; stopping while idle is rejected safely. The flow
-owns an `AbortController` for the active transcription or cleanup request. `cancel()`
+  owns an `AbortController` for the active inference request. `cancel()`
 aborts that request, cancels recording when needed, returns to `idle`, and does not expose
 a partial result. The flow releases the request controller after completion or error.
+
+While rewriting, `cancel()` aborts the rewrite, preserves the completed result, and returns
+to `completed`. A late rewrite response must not replace the preserved result.
 
 No result is persisted. No audio is retained after the flow completes or is cancelled.
 
@@ -368,10 +399,12 @@ No result is persisted. No audio is retained after the flow completes or is canc
 | Groq 429 | Show rate-limit message; no retry loop |
 | Transcription failure | Show error; no result |
 | Cleanup failure | Show raw transcript and cleanup warning |
+| Rewrite failure | Preserve the current result and show an actionable error |
 | Clipboard failure | Keep result visible and show copy error |
 | Recording exceeds 5 minutes or 25 MB | Stop/reject before upload and show an actionable limit message |
 | Repeated Start/Stop | Reject the invalid transition without a duplicate request or stuck state |
 | Cancel during upload/cleanup | Abort the request, discard the in-flight result, and return to idle |
+| Cancel during rewrite | Abort the request, preserve the current result, and return to completed |
 
 ## 6. PWA Configuration
 
@@ -393,7 +426,9 @@ Test only the small boundaries:
 - Recording state transitions with mocked browser media APIs.
 - Settings serialization and reset with mocked localStorage.
 - Groq request paths, status mapping, timeout, and cleanup fallback with injected fetch.
+- Groq rewrite request shape, validation, and response handling with injected fetch.
 - Dictation flow with mocked adapters.
+- Rewrite success, failure, repeated rewrites, and cancellation with mocked adapters.
 - Recording duration/size limits, invalid flow transitions, cancellation, and wake-lock
   release behavior.
 - Manual Android install and microphone/clipboard testing.

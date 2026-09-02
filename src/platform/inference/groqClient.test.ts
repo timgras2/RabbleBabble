@@ -44,6 +44,46 @@ describe("GroqHttpClient", () => {
     expect(body.messages[1].content).toContain("hello");
   });
 
+  it("sends a rewrite instruction separately from the transcript", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ choices: [{ message: { content: "Hello, world." } }] }),
+    );
+    const client = new GroqHttpClient({ fetcher });
+
+    await expect(
+      client.rewrite({ apiKey: "secret", text: "hello world", instruction: "Add punctuation" }),
+    ).resolves.toEqual({ text: "Hello, world." });
+
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body.model).toBe("openai/gpt-oss-20b");
+    expect(body.messages[0].content).toContain("Preserve facts and meaning");
+    expect(JSON.parse(body.messages[1].content.match(/\{[\s\S]*\}/)?.[0] ?? "{}")).toEqual({
+      instruction: "Add punctuation",
+      transcript: "hello world",
+    });
+  });
+
+  it("rejects invalid rewrite input before calling fetch", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = new GroqHttpClient({ fetcher });
+
+    await expect(client.rewrite({ apiKey: "secret", text: "hello", instruction: " " }))
+      .rejects.toMatchObject({ code: "invalid-instruction" });
+    await expect(client.rewrite({ apiKey: "secret", text: "x".repeat(20_001), instruction: "shorten" }))
+      .rejects.toMatchObject({ code: "rewrite-too-large" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty rewrite response", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ choices: [{ message: { content: "  " } }] }),
+    );
+    const client = new GroqHttpClient({ fetcher });
+
+    await expect(client.rewrite({ apiKey: "secret", text: "hello", instruction: "shorten" }))
+      .rejects.toMatchObject({ code: "empty-transcript" });
+  });
+
   it("retries server failures up to three attempts", async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({}, 500))

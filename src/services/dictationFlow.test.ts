@@ -36,6 +36,7 @@ describe("DictationFlowService", () => {
     const groq: GroqClient = {
       transcribe: vi.fn(async () => ({ text: "hello world" })),
       cleanup: vi.fn(async () => ({ text: "Hello, world." })),
+      rewrite: vi.fn(async () => ({ text: "Rewritten." })),
     };
     const flow = new DictationFlowService({
       recorder: audio,
@@ -54,6 +55,7 @@ describe("DictationFlowService", () => {
     const groq: GroqClient = {
       transcribe: vi.fn(async () => ({ text: "raw words" })),
       cleanup: vi.fn(async () => { throw new Error("cleanup failed"); }),
+      rewrite: vi.fn(async () => ({ text: "Rewritten." })),
     };
     const flow = new DictationFlowService({
       recorder: recorder(),
@@ -70,7 +72,7 @@ describe("DictationFlowService", () => {
     const flow = new DictationFlowService({
       recorder: audio,
       settings: settingsRepository({ groqApiKey: "", cleanupEnabled: true, language: "" }),
-      groq: { transcribe: vi.fn(), cleanup: vi.fn() },
+      groq: { transcribe: vi.fn(), cleanup: vi.fn(), rewrite: vi.fn() },
     });
 
     await expect(flow.start()).rejects.toMatchObject({ code: "missing-api-key" });
@@ -82,7 +84,7 @@ describe("DictationFlowService", () => {
     const flow = new DictationFlowService({
       recorder: audio,
       settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-      groq: { transcribe: vi.fn(async () => ({ text: "hello" })), cleanup: vi.fn() },
+       groq: { transcribe: vi.fn(async () => ({ text: "hello" })), cleanup: vi.fn(), rewrite: vi.fn() },
     });
     await flow.start();
     const first = flow.stop();
@@ -101,6 +103,7 @@ describe("DictationFlowService", () => {
           signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")));
         })),
         cleanup: vi.fn(),
+        rewrite: vi.fn(),
       },
     });
     await flow.start();
@@ -118,12 +121,104 @@ describe("DictationFlowService", () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
       settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-      groq: { transcribe: vi.fn(async () => { throw new Error("network"); }), cleanup: vi.fn() },
+       groq: { transcribe: vi.fn(async () => { throw new Error("network"); }), cleanup: vi.fn(), rewrite: vi.fn() },
     });
     await flow.start();
 
     await expect(flow.stop()).rejects.toThrow("network");
     expect(flow.state).toBe("error");
     expect(flow.result).toBeNull();
+  });
+
+  it("rewrites the current final text and preserves transcript metadata", async () => {
+    const rewrite = vi.fn()
+      .mockImplementationOnce(async (request: { text: string; instruction: string }) => {
+        expect(request.text).toBe("Hello, world.");
+        expect(request.instruction).toBe("Make it concise");
+        return { text: "Hello." };
+      })
+      .mockImplementationOnce(async (request: { text: string; instruction: string }) => {
+        expect(request.text).toBe("Hello.");
+        expect(request.instruction).toBe("Make it warmer");
+        return { text: "Hello there!" };
+      });
+    const flow = new DictationFlowService({
+      recorder: recorder(),
+      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: true, language: "" }),
+      groq: {
+        transcribe: vi.fn(async () => ({ text: "hello world" })),
+        cleanup: vi.fn(async () => ({ text: "Hello, world." })),
+        rewrite,
+      },
+    });
+
+    await flow.start();
+    await flow.stop();
+    await expect(flow.rewrite("Make it concise")).resolves.toEqual({
+      rawText: "hello world",
+      finalText: "Hello.",
+      cleanupApplied: true,
+      cleanupFailed: false,
+    });
+    expect(flow.state).toBe("completed");
+    await expect(flow.rewrite("Make it warmer")).resolves.toMatchObject({ finalText: "Hello there!" });
+  });
+
+  it("preserves the previous result when rewriting fails", async () => {
+    const flow = new DictationFlowService({
+      recorder: recorder(),
+      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
+      groq: {
+        transcribe: vi.fn(async () => ({ text: "original" })),
+        cleanup: vi.fn(),
+        rewrite: vi.fn(async () => { throw new Error("rewrite failed"); }),
+      },
+    });
+
+    await flow.start();
+    const original = await flow.stop();
+    await expect(flow.rewrite("Change it")).rejects.toThrow("rewrite failed");
+    expect(flow.state).toBe("completed");
+    expect(flow.result).toEqual(original);
+  });
+
+  it("cancels rewriting without clearing the previous result", async () => {
+    const flow = new DictationFlowService({
+      recorder: recorder(),
+      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
+      groq: {
+        transcribe: vi.fn(async () => ({ text: "original" })),
+        cleanup: vi.fn(),
+        rewrite: vi.fn(({ signal }): Promise<{ text: string }> => new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")));
+        })),
+      },
+    });
+
+    await flow.start();
+    const original = await flow.stop();
+    const rewriting = flow.rewrite("Change it");
+    const handled = rewriting.catch(() => undefined);
+    await Promise.resolve();
+    await flow.cancel();
+
+    await handled;
+    expect(flow.state).toBe("completed");
+    expect(flow.result).toEqual(original);
+  });
+
+  it("rejects a rewrite without a result or instruction", async () => {
+    const rewrite = vi.fn();
+    const flow = new DictationFlowService({
+      recorder: recorder(),
+      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
+      groq: { transcribe: vi.fn(async () => ({ text: "original" })), cleanup: vi.fn(), rewrite },
+    });
+
+    await expect(flow.rewrite("Change it")).rejects.toMatchObject({ code: "recording-invalid" });
+    await flow.start();
+    await flow.stop();
+    await expect(flow.rewrite(" ")).rejects.toMatchObject({ code: "invalid-instruction" });
+    expect(rewrite).not.toHaveBeenCalled();
   });
 });

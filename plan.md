@@ -13,6 +13,7 @@ The app will:
 4. Optionally send the transcript to the pinned Groq cleanup model.
 5. Show the final text.
 6. Let the user explicitly copy the text.
+7. Let the user apply a typed instruction to rewrite the current final text.
 
 The app will be deployed as a static HTTPS site and installed from Android Chrome.
 
@@ -21,7 +22,7 @@ The app will be deployed as a static HTTPS site and installed from Android Chrom
 - **Platform:** Android 10+ with current Android Chrome and the installed PWA only.
 - **Inference:** Groq Cloud only.
 - **Models:** `whisper-large-v3-turbo` for transcription and
-  `llama-3.1-8b-instant` for cleanup. The cleanup model is a code constant in v1, not
+  `openai/gpt-oss-20b` for cleanup. The cleanup model is a code constant in v1, not
   free-form user input. Verify it against Groq's supported-models page before release.
 - **API key:** entered once on the device and stored in browser `localStorage`.
 - **Settings:** localStorage only. There is not enough data to justify IndexedDB.
@@ -29,6 +30,9 @@ The app will be deployed as a static HTTPS site and installed from Android Chrom
   V1 assumes one trusted user per device; do not add multi-user privacy behavior.
 - **Users:** one trusted user per device; no accounts, profiles, login, or synchronization.
 - **Clipboard:** explicit Copy action only. No automatic paste is possible from a PWA.
+- **Rewrite:** after a result is shown, a typed instruction can rewrite the current final
+  text with the fixed cleanup model. Repeated rewrites use the latest final text; no undo
+  history is included in v1.
 - **Offline behavior:** show an error. Do not queue recordings.
 - **Local inference:** not included and not probed.
 - **Fallbacks:** no local fallback. Transcription failure is surfaced clearly; cleanup
@@ -99,6 +103,8 @@ and should touch no more than two files.
 - Recording is capped at 5 minutes and 25 MB; no oversized recording is uploaded.
 - Groq transcription works with `whisper-large-v3-turbo`.
 - Cleanup can be disabled and cleanup failures preserve the raw transcript.
+- A user can rewrite the current final transcript with a typed instruction; rewrite
+  failures and cancellation preserve the previous result.
 - Copy works from an explicit button press.
 - No audio, transcript, API key, or API response is cached by the service worker.
 - Offline, missing-key, permission, timeout, and API errors are visible and actionable.
@@ -114,6 +120,7 @@ and should touch no more than two files.
 Do not implement these during v1:
 
 - History or IndexedDB
+- Voice instructions, undo, and rewrite history
 - Accounts or cross-device sync
 - Backend proxy
 - Multiple providers

@@ -12,6 +12,9 @@ export type AdapterErrorCode =
   | "api-server"
   | "api-timeout"
   | "empty-transcript"
+  | "invalid-instruction"
+  | "rewrite-too-large"
+  | "cancelled"
   | "clipboard-unavailable"
   | "clipboard-denied";
 

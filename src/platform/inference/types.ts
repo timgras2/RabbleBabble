@@ -14,6 +14,10 @@ export interface GroqCleanupResponse {
   readonly text: string;
 }
 
+export interface GroqRewriteResponse {
+  readonly text: string;
+}
+
 export interface GroqClient {
   transcribe(request: {
     readonly apiKey: string;
@@ -27,4 +31,11 @@ export interface GroqClient {
     readonly text: string;
     readonly signal?: AbortSignal;
   }): Promise<GroqCleanupResponse>;
+
+  rewrite(request: {
+    readonly apiKey: string;
+    readonly text: string;
+    readonly instruction: string;
+    readonly signal?: AbortSignal;
+  }): Promise<GroqRewriteResponse>;
 }
