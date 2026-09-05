@@ -11,10 +11,10 @@ function jsonResponse(value: unknown, status = 200): Response {
 describe("GroqHttpClient", () => {
   it("sends native multipart audio and omits an empty language", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ text: "hello" }));
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
     const audio = { blob: new Blob(["audio"], { type: "audio/mp4" }), mimeType: "audio/mp4", durationMs: 1000 };
 
-    await expect(client.transcribe({ apiKey: "secret", audio, language: "" })).resolves.toEqual({ text: "hello" });
+    await expect(client.transcribe({ audio, language: "" })).resolves.toEqual({ text: "hello" });
     const request = fetcher.mock.calls[0];
     const body = request[1]?.body as FormData;
     expect(request[0]).toContain("/audio/transcriptions");
@@ -25,9 +25,9 @@ describe("GroqHttpClient", () => {
 
   it("maps unauthorized responses without exposing the key", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}, 401));
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret-key" });
 
-    const error = await client.cleanup({ apiKey: "secret-key", text: "hello" }).catch((caught) => caught);
+    const error = await client.cleanup({ text: "hello" }).catch((caught) => caught);
     expect(error).toBeInstanceOf(AdapterError);
     expect(error).toMatchObject({ code: "api-unauthorized" });
     expect(error.message).not.toContain("secret-key");
@@ -35,9 +35,9 @@ describe("GroqHttpClient", () => {
 
   it("sends the fixed cleanup model and prompt", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "Hello." } }] }));
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
 
-    await client.cleanup({ apiKey: "secret", text: "hello" });
+    await client.cleanup({ text: "hello" });
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
     expect(body.model).toBe("openai/gpt-oss-20b");
     expect(body.messages).toHaveLength(2);
@@ -48,10 +48,10 @@ describe("GroqHttpClient", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({ choices: [{ message: { content: "Hello, world." } }] }),
     );
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
 
     await expect(
-      client.rewrite({ apiKey: "secret", text: "hello world", instruction: "Add punctuation" }),
+      client.rewrite({ text: "hello world", instruction: "Add punctuation" }),
     ).resolves.toEqual({ text: "Hello, world." });
 
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
@@ -65,11 +65,11 @@ describe("GroqHttpClient", () => {
 
   it("rejects invalid rewrite input before calling fetch", async () => {
     const fetcher = vi.fn<typeof fetch>();
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
 
-    await expect(client.rewrite({ apiKey: "secret", text: "hello", instruction: " " }))
+    await expect(client.rewrite({ text: "hello", instruction: " " }))
       .rejects.toMatchObject({ code: "invalid-instruction" });
-    await expect(client.rewrite({ apiKey: "secret", text: "x".repeat(20_001), instruction: "shorten" }))
+    await expect(client.rewrite({ text: "x".repeat(20_001), instruction: "shorten" }))
       .rejects.toMatchObject({ code: "rewrite-too-large" });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -78,9 +78,9 @@ describe("GroqHttpClient", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({ choices: [{ message: { content: "  " } }] }),
     );
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
 
-    await expect(client.rewrite({ apiKey: "secret", text: "hello", instruction: "shorten" }))
+    await expect(client.rewrite({ text: "hello", instruction: "shorten" }))
       .rejects.toMatchObject({ code: "empty-transcript" });
   });
 
@@ -91,9 +91,9 @@ describe("GroqHttpClient", () => {
         .mockResolvedValueOnce(jsonResponse({}, 500))
         .mockResolvedValueOnce(jsonResponse({}, 502))
         .mockResolvedValueOnce(jsonResponse({ text: "recovered" }));
-      const client = new GroqHttpClient({ fetcher });
+      const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
       const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
-      const request = client.transcribe({ apiKey: "secret", audio });
+      const request = client.transcribe({ audio });
 
       await vi.runAllTimersAsync();
       await expect(request).resolves.toEqual({ text: "recovered" });
@@ -105,10 +105,10 @@ describe("GroqHttpClient", () => {
 
   it("rejects oversized audio before calling fetch", async () => {
     const fetcher = vi.fn<typeof fetch>();
-    const client = new GroqHttpClient({ fetcher });
+    const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
     const audio = { blob: new Blob([new Uint8Array(26_214_401)], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
 
-    await expect(client.transcribe({ apiKey: "secret", audio })).rejects.toMatchObject({ code: "recording-too-large" });
+    await expect(client.transcribe({ audio })).rejects.toMatchObject({ code: "recording-too-large" });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -122,9 +122,9 @@ describe("GroqHttpClient", () => {
           { once: true },
         );
       }));
-      const client = new GroqHttpClient({ fetcher, transcriptionTimeoutMs: 10 });
+      const client = new GroqHttpClient({ fetcher, apiKey: () => "secret", transcriptionTimeoutMs: 10 });
       const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
-      const request = client.transcribe({ apiKey: "secret", audio });
+      const request = client.transcribe({ audio });
       const result = expect(request).rejects.toMatchObject({ code: "api-timeout" });
       await Promise.resolve();
       await vi.advanceTimersByTimeAsync(11);
@@ -145,8 +145,8 @@ describe("GroqHttpClient", () => {
           { once: true },
         );
       }));
-      const client = new GroqHttpClient({ fetcher, timeoutMs: 10 });
-      const request = client.cleanup({ apiKey: "secret", text: "hello" });
+      const client = new GroqHttpClient({ fetcher, apiKey: () => "secret", timeoutMs: 10 });
+      const request = client.cleanup({ text: "hello" });
 
       await Promise.resolve();
       const result = expect(request).rejects.toMatchObject({ code: "api-timeout" });
@@ -156,5 +156,32 @@ describe("GroqHttpClient", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports readiness from the current key without calling fetch", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    let key = "";
+    const client = new GroqHttpClient({ fetcher, apiKey: () => key });
+
+    await expect(client.ensureReady()).rejects.toMatchObject({ code: "missing-api-key" });
+    key = "a-key";
+    await expect(client.ensureReady()).resolves.toBeUndefined();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("reads the key at request time, so editing it in Settings takes effect at once", async () => {
+    // A fresh Response per call: a body can only be read once.
+    const fetcher = vi.fn<typeof fetch>(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    let key = "first-key";
+    const client = new GroqHttpClient({ fetcher, apiKey: () => key });
+
+    await client.cleanup({ text: "hello" });
+    key = "second-key";
+    await client.cleanup({ text: "hello" });
+
+    const authorization = (index: number) =>
+      new Headers(fetcher.mock.calls[index][1]?.headers).get("Authorization");
+    expect(authorization(0)).toBe("Bearer first-key");
+    expect(authorization(1)).toBe("Bearer second-key");
   });
 });

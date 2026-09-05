@@ -6,12 +6,23 @@ import { CLEANUP_MODEL, TRANSCRIPTION_MODEL } from "../../shared/models";
 import { buildCleanupMessages, buildRewriteMessages } from "../../shared/prompts";
 import type { AudioRecording } from "../audio/types";
 import type {
-  GroqCleanupResponse,
-  GroqClient,
-  GroqClientOptions,
-  GroqRewriteResponse,
-  GroqTranscriptionResponse,
+  CleanupResponse,
+  InferenceClient,
+  InferenceClientOptions,
+  RewriteResponse,
+  TranscriptionResponse,
 } from "./types";
+
+/**
+ * Reads the current key at call time. Injected from the composition root so
+ * this adapter never touches storage, and so editing the key in Settings
+ * takes effect on the next request rather than the next reload.
+ */
+export type ApiKeyProvider = () => string;
+
+export interface GroqClientOptions extends InferenceClientOptions {
+  readonly apiKey: ApiKeyProvider;
+}
 
 export { CLEANUP_MODEL, TRANSCRIPTION_MODEL };
 
@@ -33,13 +44,15 @@ const groqErrors: HttpErrorMapper = {
     new AdapterError("Groq returned an invalid response.", { code: "api-invalid", cause }),
 };
 
-export class GroqHttpClient implements GroqClient {
+export class GroqHttpClient implements InferenceClient {
+  private readonly apiKey: ApiKeyProvider;
   private readonly baseUrl: string;
   private readonly http: RetryingHttp;
   private readonly chatTimeoutMs: number;
   private readonly transcriptionTimeoutMs: number;
 
-  constructor(options: GroqClientOptions = {}) {
+  constructor(options: GroqClientOptions) {
+    this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.http = new RetryingHttp({ fetcher: options.fetcher, errors: groqErrors });
     this.chatTimeoutMs = options.timeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
@@ -48,12 +61,12 @@ export class GroqHttpClient implements GroqClient {
   }
 
   async transcribe(request: {
-    readonly apiKey: string;
     readonly audio: AudioRecording;
     readonly language?: string;
     readonly signal?: AbortSignal;
-  }): Promise<GroqTranscriptionResponse> {
-    this.validateKey(request.apiKey);
+  }): Promise<TranscriptionResponse> {
+    const apiKey = this.apiKey();
+    this.validateKey(apiKey);
     if (request.audio.blob.size > MAX_AUDIO_BYTES) {
       throw new AdapterError("Recording exceeds the 25 MB upload limit.", {
         code: "recording-too-large",
@@ -69,7 +82,7 @@ export class GroqHttpClient implements GroqClient {
 
     const response = await this.http.send(`${this.baseUrl}/audio/transcriptions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${request.apiKey}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
       signal: request.signal,
     }, { timeoutMs: this.transcriptionTimeoutMs, retryTimeouts: false });
@@ -84,11 +97,11 @@ export class GroqHttpClient implements GroqClient {
   }
 
   async cleanup(request: {
-    readonly apiKey: string;
     readonly text: string;
     readonly signal?: AbortSignal;
-  }): Promise<GroqCleanupResponse> {
-    this.validateKey(request.apiKey);
+  }): Promise<CleanupResponse> {
+    const apiKey = this.apiKey();
+    this.validateKey(apiKey);
     if (!request.text.trim()) {
       throw new AdapterError("There is no transcript to clean up.", {
         code: "empty-transcript",
@@ -98,7 +111,7 @@ export class GroqHttpClient implements GroqClient {
     const response = await this.http.send(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${request.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -121,12 +134,12 @@ export class GroqHttpClient implements GroqClient {
   }
 
   async rewrite(request: {
-    readonly apiKey: string;
     readonly text: string;
     readonly instruction: string;
     readonly signal?: AbortSignal;
-  }): Promise<GroqRewriteResponse> {
-    this.validateKey(request.apiKey);
+  }): Promise<RewriteResponse> {
+    const apiKey = this.apiKey();
+    this.validateKey(apiKey);
     if (!request.text.trim()) {
       throw new AdapterError("There is no transcript to rewrite.", {
         code: "empty-transcript",
@@ -149,7 +162,7 @@ export class GroqHttpClient implements GroqClient {
     const response = await this.http.send(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${request.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -169,6 +182,10 @@ export class GroqHttpClient implements GroqClient {
       });
     }
     return { text };
+  }
+
+  async ensureReady(): Promise<void> {
+    this.validateKey(this.apiKey());
   }
 
   private validateKey(apiKey: string): void {

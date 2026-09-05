@@ -1,5 +1,6 @@
 import type { AudioRecorder, AudioRecording, RecordingState } from "../platform/audio/types";
-import type { GroqClient } from "../platform/inference/types";
+import { AdapterError } from "../platform/errors";
+import type { InferenceClient } from "../platform/inference/types";
 import { DEFAULT_SETTINGS } from "../platform/storage/localStorageSettings";
 import type { Settings, SettingsRepository } from "../platform/storage/types";
 import { DictationFlowService } from "./dictationFlow";
@@ -37,15 +38,16 @@ function recorder(): AudioRecorder & { states: RecordingState[] } {
 describe("DictationFlowService", () => {
   it("runs transcription and cleanup in order", async () => {
     const audio = recorder();
-    const groq: GroqClient = {
+    const groq: InferenceClient = {
+      ensureReady: vi.fn(async () => undefined),
       transcribe: vi.fn(async () => ({ text: "hello world" })),
       cleanup: vi.fn(async () => ({ text: "Hello, world." })),
       rewrite: vi.fn(async () => ({ text: "Rewritten." })),
     };
     const flow = new DictationFlowService({
       recorder: audio,
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: true, language: "" }),
-      groq,
+      settings: settingsRepository({ cleanupEnabled: true, language: "" }),
+      inference: groq,
     });
 
     await flow.start();
@@ -56,39 +58,76 @@ describe("DictationFlowService", () => {
   });
 
   it("falls back to raw text when cleanup fails", async () => {
-    const groq: GroqClient = {
+    const groq: InferenceClient = {
+      ensureReady: vi.fn(async () => undefined),
       transcribe: vi.fn(async () => ({ text: "raw words" })),
       cleanup: vi.fn(async () => { throw new Error("cleanup failed"); }),
       rewrite: vi.fn(async () => ({ text: "Rewritten." })),
     };
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: true, language: "" }),
-      groq,
+      settings: settingsRepository({ cleanupEnabled: true, language: "" }),
+      inference: groq,
     });
 
     await flow.start();
     await expect(flow.stop()).resolves.toMatchObject({ rawText: "raw words", finalText: "raw words", cleanupFailed: true });
   });
 
-  it("rejects a start without a key before using the microphone", async () => {
+  it("refuses to start when the client is not ready, before using the microphone", async () => {
     const audio = recorder();
     const flow = new DictationFlowService({
       recorder: audio,
-      settings: settingsRepository({ groqApiKey: "", cleanupEnabled: true, language: "" }),
-      groq: { transcribe: vi.fn(), cleanup: vi.fn(), rewrite: vi.fn() },
+      settings: settingsRepository({ cleanupEnabled: true, language: "" }),
+      inference: {
+        ensureReady: vi.fn(async () => {
+          throw new AdapterError("no key", { code: "missing-api-key" });
+        }),
+        transcribe: vi.fn(),
+        cleanup: vi.fn(),
+        rewrite: vi.fn(),
+      },
     });
 
     await expect(flow.start()).rejects.toMatchObject({ code: "missing-api-key" });
+    // The microphone never opened, so the user has not lost any speech.
     expect(audio.states).toEqual([]);
+  });
+
+  it("releases the microphone when readiness lapses between start and stop", async () => {
+    const audio = recorder();
+    const transcribe = vi.fn();
+    let ready = true;
+    const flow = new DictationFlowService({
+      recorder: audio,
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: {
+        ensureReady: vi.fn(async () => {
+          if (!ready) {
+            throw new AdapterError("session ended", { code: "not-authenticated" });
+          }
+        }),
+        transcribe,
+        cleanup: vi.fn(),
+        rewrite: vi.fn(),
+      },
+    });
+
+    await flow.start();
+    ready = false;
+
+    await expect(flow.stop()).rejects.toMatchObject({ code: "not-authenticated" });
+    // No upload was attempted, and the microphone is not left running.
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(audio.cancel).toHaveBeenCalledTimes(1);
   });
 
   it("does not start a duplicate stop operation", async () => {
     const audio = recorder();
     const flow = new DictationFlowService({
       recorder: audio,
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-       groq: { transcribe: vi.fn(async () => ({ text: "hello" })), cleanup: vi.fn(), rewrite: vi.fn() },
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+       inference: { ensureReady: vi.fn(async () => undefined), transcribe: vi.fn(async () => ({ text: "hello" })), cleanup: vi.fn(), rewrite: vi.fn() },
     });
     await flow.start();
     const first = flow.stop();
@@ -101,8 +140,9 @@ describe("DictationFlowService", () => {
   it("cancels an in-flight transcription without retaining a result", async () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-      groq: {
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: {
+        ensureReady: vi.fn(async () => undefined),
         transcribe: vi.fn(({ signal }): Promise<{ text: string }> => new Promise((_resolve, reject) => {
           signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")));
         })),
@@ -124,8 +164,8 @@ describe("DictationFlowService", () => {
   it("does not expose a result when transcription fails", async () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-       groq: { transcribe: vi.fn(async () => { throw new Error("network"); }), cleanup: vi.fn(), rewrite: vi.fn() },
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+       inference: { ensureReady: vi.fn(async () => undefined), transcribe: vi.fn(async () => { throw new Error("network"); }), cleanup: vi.fn(), rewrite: vi.fn() },
     });
     await flow.start();
 
@@ -148,8 +188,9 @@ describe("DictationFlowService", () => {
       });
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: true, language: "" }),
-      groq: {
+      settings: settingsRepository({ cleanupEnabled: true, language: "" }),
+      inference: {
+        ensureReady: vi.fn(async () => undefined),
         transcribe: vi.fn(async () => ({ text: "hello world" })),
         cleanup: vi.fn(async () => ({ text: "Hello, world." })),
         rewrite,
@@ -171,8 +212,9 @@ describe("DictationFlowService", () => {
   it("preserves the previous result when rewriting fails", async () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-      groq: {
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: {
+        ensureReady: vi.fn(async () => undefined),
         transcribe: vi.fn(async () => ({ text: "original" })),
         cleanup: vi.fn(),
         rewrite: vi.fn(async () => { throw new Error("rewrite failed"); }),
@@ -189,8 +231,9 @@ describe("DictationFlowService", () => {
   it("cancels rewriting without clearing the previous result", async () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-      groq: {
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: {
+        ensureReady: vi.fn(async () => undefined),
         transcribe: vi.fn(async () => ({ text: "original" })),
         cleanup: vi.fn(),
         rewrite: vi.fn(({ signal }): Promise<{ text: string }> => new Promise((_resolve, reject) => {
@@ -215,8 +258,8 @@ describe("DictationFlowService", () => {
     const rewrite = vi.fn();
     const flow = new DictationFlowService({
       recorder: recorder(),
-      settings: settingsRepository({ groqApiKey: "key", cleanupEnabled: false, language: "" }),
-      groq: { transcribe: vi.fn(async () => ({ text: "original" })), cleanup: vi.fn(), rewrite },
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: { ensureReady: vi.fn(async () => undefined), transcribe: vi.fn(async () => ({ text: "original" })), cleanup: vi.fn(), rewrite },
     });
 
     await expect(flow.rewrite("Change it")).rejects.toMatchObject({ code: "recording-invalid" });

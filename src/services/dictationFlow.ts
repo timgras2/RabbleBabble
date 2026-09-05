@@ -1,6 +1,6 @@
 import { AdapterError } from "../platform/errors";
 import type { AudioRecorder } from "../platform/audio/types";
-import type { GroqClient } from "../platform/inference/types";
+import type { InferenceClient } from "../platform/inference/types";
 import type { SettingsRepository } from "../platform/storage/types";
 import type { Unsubscribe } from "../platform/types";
 import type { DictationFlow, DictationResult, DictationState } from "./types";
@@ -8,7 +8,7 @@ import type { DictationFlow, DictationResult, DictationState } from "./types";
 export interface DictationFlowDependencies {
   readonly recorder: AudioRecorder;
   readonly settings: SettingsRepository;
-  readonly groq: GroqClient;
+  readonly inference: InferenceClient;
 }
 
 export class DictationFlowService implements DictationFlow {
@@ -38,11 +38,11 @@ export class DictationFlowService implements DictationFlow {
     if (this.activeStop || this.activeRewrite || !["idle", "completed", "error"].includes(this.currentState)) {
       throw this.invalidTransition("Finish or cancel the current operation first.");
     }
-    if (!this.dependencies.settings.get().groqApiKey.trim()) {
+    try {
+      await this.dependencies.inference.ensureReady();
+    } catch (error) {
       this.setState("error");
-      throw new AdapterError("Enter a Groq API key in Settings before recording.", {
-        code: "missing-api-key",
-      });
+      throw error;
     }
 
     try {
@@ -148,18 +148,17 @@ export class DictationFlowService implements DictationFlow {
     this.controller = controller;
     try {
       const settings = this.dependencies.settings.get();
-      if (!settings.groqApiKey.trim()) {
+      try {
+        await this.dependencies.inference.ensureReady();
+      } catch (error) {
         await this.dependencies.recorder.cancel();
-        throw new AdapterError("Enter a Groq API key in Settings before uploading.", {
-          code: "missing-api-key",
-        });
+        throw error;
       }
 
       const audio = await this.dependencies.recorder.stop();
       this.throwIfCancelled(controller);
       this.setState("transcribing");
-      const transcription = await this.dependencies.groq.transcribe({
-        apiKey: settings.groqApiKey,
+      const transcription = await this.dependencies.inference.transcribe({
         audio,
         language: settings.language,
         signal: controller.signal,
@@ -172,9 +171,8 @@ export class DictationFlowService implements DictationFlow {
       if (settings.cleanupEnabled) {
         this.setState("cleaning");
         try {
-          const cleanup = await this.dependencies.groq.cleanup({
-            apiKey: settings.groqApiKey,
-            text: transcription.text,
+          const cleanup = await this.dependencies.inference.cleanup({
+                text: transcription.text,
             signal: controller.signal,
           });
           this.throwIfCancelled(controller);
@@ -221,16 +219,10 @@ export class DictationFlowService implements DictationFlow {
     const controller = new AbortController();
     this.controller = controller;
     try {
-      const settings = this.dependencies.settings.get();
-      if (!settings.groqApiKey.trim()) {
-        throw new AdapterError("Enter a Groq API key in Settings before rewriting.", {
-          code: "missing-api-key",
-        });
-      }
+      await this.dependencies.inference.ensureReady();
 
       this.setState("rewriting");
-      const rewrite = await this.dependencies.groq.rewrite({
-        apiKey: settings.groqApiKey,
+      const rewrite = await this.dependencies.inference.rewrite({
         text: previousResult.finalText,
         instruction,
         signal: controller.signal,

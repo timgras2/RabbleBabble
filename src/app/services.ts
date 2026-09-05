@@ -8,8 +8,10 @@ import type { AppServices } from "./types";
 export function createAppServices(): AppServices {
   const settings = new LocalStorageSettings();
   const recorder = new MediaRecorderAdapter();
-  const groq = new GroqHttpClient();
+  // The closure is the seam: the adapter reads the current key without ever
+  // importing storage, so the boundary rule in architecture.md still holds.
+  const inference = new GroqHttpClient({ apiKey: () => settings.get().groqApiKey });
   const clipboard = new BrowserClipboard();
-  const dictation = new DictationFlowService({ recorder, settings, groq });
-  return { settings, recorder, groq, clipboard, dictation };
+  const dictation = new DictationFlowService({ recorder, settings, inference });
+  return { settings, recorder, inference, clipboard, dictation };
 }
