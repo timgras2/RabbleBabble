@@ -15,10 +15,13 @@
   --ink-2: #27343e;
   --ink-3: #34414a;
   --ink-4: #536069;
-  --muted: #66717a;
-  --muted-2: #89929a;
-  --muted-3: #9aa1a3;
-  --muted-4: #a0a5a5;
+  /* Muted greys are all >= 4.5:1 on both --bg and --surface. The v1 values
+     (#89929a, #9aa1a3, #a0a5a5) measured 2.3-2.9:1, and they carried the
+     smallest text in the app, which is exactly where contrast matters most. */
+  --muted: #5b656d;
+  --muted-2: #616a71;
+  --muted-3: #666d70;
+  --muted-4: #6a6f6f;
   --on-dark: #fffaf1;
 
   /* Lines */
@@ -28,18 +31,18 @@
 
   /* Accent */
   --accent: #ef765d;
-  --accent-strong: #c85642;
+  --accent-strong: #b8402c;
   --accent-deep: #d85c45;
   --accent-tint: rgba(239, 118, 93, 0.12);
 
   /* Semantic signals */
-  --ok: #4e8d71;
+  --ok: #3d7259;
   --danger: #b05243;
   --danger-ink: #8d3e32;
   --danger-ink-2: #a45b4f;
   --danger-bg: #fff0ec;
   --danger-border: #f6d5cc;
-  --warn: #a36b2d;
+  --warn: #8a5a24;
 
   /* Depth */
   --lip: #d8d2c6;
@@ -61,6 +64,10 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
+
+/* One visible focus treatment for every control, so keyboard and switch-access
+   users are never left guessing where they are. */
+:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; border-radius: 6px; }
 
 /* The recorder is a fixed-height, non-scrolling screen: the record button must
    sit in the thumb zone on every visit without the page moving under it.
@@ -106,7 +113,8 @@ h1 em { color: var(--accent); font-style: normal; }
 .state-line { min-height: 20px; color: var(--muted-2); font-size: 13px; font-weight: 700; text-align: center; }
 .recording-timer { color: var(--accent-strong); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em; }
 .recording-timer span { color: var(--muted-4); font-size: 13px; font-weight: 600; }
-.cancel-button { padding: 3px 8px; border: 0; color: var(--muted-4); background: transparent; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+/* Visually a small text link, but padded out to the 44px minimum hit area. */
+.cancel-button { min-height: 44px; padding: 3px 16px; border: 0; color: var(--muted-4); background: transparent; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -132,7 +140,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .notice div { flex: 1; display: grid; gap: 2px; }
 .notice strong { font-size: 13px; }
 .notice span { color: var(--danger-ink-2); }
-.text-button { align-self: center; border: 0; background: transparent; color: var(--accent-strong); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.text-button { align-self: center; min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--accent-strong); font-size: 12px; font-weight: 800; white-space: nowrap; }
 .result-card { width: 100%; margin: 0; padding: 24px; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); }
 .result-card__header { display: flex; justify-content: space-between; color: var(--muted-2); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 .result-card__check { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); letter-spacing: .04em; }
@@ -150,7 +158,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .rewrite-form textarea:disabled { opacity: .65; }
 .rewrite-form__meta { margin-top: 5px; color: var(--muted-3); font-size: 10px; text-align: right; }
 .rewrite-form__actions { margin-top: 11px; display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-.rewrite-form__apply, .rewrite-form__cancel { min-height: 40px; border-radius: 10px; font-size: 12px; font-weight: 800; }
+.rewrite-form__apply, .rewrite-form__cancel { min-height: 44px; border-radius: 10px; font-size: 12px; font-weight: 800; }
 .rewrite-form__apply { border: 0; color: var(--on-dark); background: var(--accent); }
 .rewrite-form__apply:disabled { cursor: not-allowed; opacity: .55; }
 .rewrite-form__cancel { padding: 0 14px; border: 1px solid var(--border); color: var(--muted); background: transparent; }
@@ -168,13 +176,15 @@ h1 em { color: var(--accent); font-style: normal; }
 .input-wrap { min-height: 48px; padding: 0 13px; border: 1px solid var(--border); border-radius: 12px; display: flex; align-items: center; gap: 9px; color: var(--muted-3); background: var(--surface); }
 .input-wrap:focus-within, .field-group > input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); outline: 0; }
 .input-wrap input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink-2); background: transparent; font-size: 14px; }
-.input-action { padding: 3px; border: 0; color: var(--muted-2); background: transparent; }
+.input-action { width: 44px; height: 44px; margin-right: -9px; border: 0; display: grid; place-items: center; flex: 0 0 auto; color: var(--muted-2); background: transparent; }
 .field-group > input { min-height: 48px; padding: 0 13px; border: 1px solid var(--border); border-radius: 12px; outline: 0; color: var(--ink-2); background: var(--surface); font-size: 14px; }
 .setting-row { margin: 0 -27px 27px; padding: 20px 27px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .setting-row div { display: grid; gap: 5px; }
 .setting-row strong { color: var(--ink-3); font-size: 13px; }
 .setting-row span { color: var(--muted-3); font-size: 11px; }
-.toggle { width: 45px; height: 26px; padding: 3px; border: 0; border-radius: 20px; flex: 0 0 auto; background: var(--lip); transition: background .2s ease; }
+.toggle { position: relative; width: 45px; height: 26px; padding: 3px; border: 0; border-radius: 20px; flex: 0 0 auto; background: var(--lip); transition: background .2s ease; }
+/* Keeps the switch visually small while giving it a 44px-tall hit area. */
+.toggle::after { content: ""; position: absolute; top: -9px; right: 0; bottom: -9px; left: 0; }
 .toggle span { width: 20px; height: 20px; display: block; border-radius: 50%; background: var(--surface); transition: transform .2s ease; }
 .toggle--on { background: var(--accent); }
 .toggle--on span { transform: translateX(19px); }
@@ -187,7 +197,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .danger-zone div { display: grid; gap: 4px; }
 .danger-zone strong { color: var(--ink-4); font-size: 12px; }
 .danger-zone span { color: var(--muted-4); font-size: 11px; }
-.danger-button { padding: 9px 12px; border: 1px solid var(--danger-border); border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--danger); background: transparent; font-size: 11px; font-weight: 800; }
+.danger-button { min-height: 44px; padding: 9px 14px; border: 1px solid var(--danger-border); border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--danger); background: transparent; font-size: 11px; font-weight: 800; }
 
 @media (max-width: 560px) {
   .app-shell { padding-right: 16px; padding-left: 16px; }
