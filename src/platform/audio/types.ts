@@ -17,6 +17,12 @@ export interface AudioRecorderOptions {
 
 export interface AudioRecorder {
   readonly state: RecordingState;
+  /**
+   * Normalised 0..1 loudness of the live input, or null when nothing is being
+   * recorded or the platform cannot measure it. Polled by the level meter, so
+   * it must stay cheap and must never throw.
+   */
+  getInputLevel(): number | null;
   start(): Promise<void>;
   stop(): Promise<AudioRecording>;
   cancel(): Promise<void>;

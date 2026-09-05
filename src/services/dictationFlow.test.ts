@@ -21,6 +21,7 @@ function recorder(): AudioRecorder & { states: RecordingState[] } {
   return {
     states,
     state: "idle",
+    getInputLevel: () => null,
     start: vi.fn(async () => { states.push("recording"); }),
     stop: vi.fn(async (): Promise<AudioRecording> => ({
       blob: new Blob(["audio"], { type: "audio/webm" }),

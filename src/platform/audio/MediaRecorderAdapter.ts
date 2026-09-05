@@ -32,6 +32,9 @@ export class MediaRecorderAdapter implements AudioRecorder {
   private autoStopped = false;
   private wakeLock: WakeLockSentinel | null = null;
   private visibilityHandler: (() => void) | null = null;
+  private audioContext: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private levelBuffer: Uint8Array<ArrayBuffer> | null = null;
 
   constructor(options: AudioRecorderOptions = {}) {
     this.options = {
@@ -43,6 +46,25 @@ export class MediaRecorderAdapter implements AudioRecorder {
 
   get state(): RecordingState {
     return this.currentState;
+  }
+
+  getInputLevel(): number | null {
+    if (this.currentState !== "recording" || !this.analyser || !this.levelBuffer) {
+      return null;
+    }
+    try {
+      this.analyser.getByteTimeDomainData(this.levelBuffer);
+      let sumOfSquares = 0;
+      for (const sample of this.levelBuffer) {
+        const centred = (sample - 128) / 128;
+        sumOfSquares += centred * centred;
+      }
+      const rms = Math.sqrt(sumOfSquares / this.levelBuffer.length);
+      // Speech RMS rarely passes ~0.3, so scale to make normal talking fill the meter.
+      return Math.min(1, rms * 3.2);
+    } catch {
+      return null;
+    }
   }
 
   async start(): Promise<void> {
@@ -95,7 +117,44 @@ export class MediaRecorderAdapter implements AudioRecorder {
       this.finishStop();
     }, this.options.maxDurationMs);
     this.installVisibilityHandler();
+    this.attachLevelAnalyser();
     void this.acquireWakeLock();
+  }
+
+  /** Feeds the level meter. Purely an enhancement -- failure must not stop a recording. */
+  private attachLevelAnalyser(): void {
+    if (!this.stream) {
+      return;
+    }
+    const AudioContextCtor =
+      typeof AudioContext !== "undefined"
+        ? AudioContext
+        : (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) {
+      return;
+    }
+    try {
+      const context = new AudioContextCtor();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.6;
+      context.createMediaStreamSource(this.stream).connect(analyser);
+      this.audioContext = context;
+      this.analyser = analyser;
+      this.levelBuffer = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+    } catch {
+      this.releaseLevelAnalyser();
+    }
+  }
+
+  private releaseLevelAnalyser(): void {
+    const context = this.audioContext;
+    this.audioContext = null;
+    this.analyser = null;
+    this.levelBuffer = null;
+    if (context && context.state !== "closed") {
+      void context.close().catch(() => undefined);
+    }
   }
 
   stop(): Promise<AudioRecording> {
@@ -302,6 +361,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
       document.removeEventListener("visibilitychange", this.visibilityHandler);
       this.visibilityHandler = null;
     }
+    this.releaseLevelAnalyser();
     for (const track of this.stream?.getTracks() ?? []) {
       track.stop();
     }

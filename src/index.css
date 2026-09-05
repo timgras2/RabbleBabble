@@ -107,10 +107,25 @@ h1 em { color: var(--accent); font-style: normal; }
 .recording-timer { color: var(--accent-strong); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em; }
 .recording-timer span { color: var(--muted-4); font-size: 13px; font-weight: 600; }
 .cancel-button { padding: 3px 8px; border: 0; color: var(--muted-4); background: transparent; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
-.pulse-dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s infinite; }
 .spin { animation: spin 1s linear infinite; }
-@keyframes pulse { 50% { opacity: .35; transform: scale(.75); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Live input level -- proof the app is hearing *you*, and the one loud element
+   in the UI. Bars are scaled from rAF in LevelMeter, never from React state. */
+.listening-readout { display: flex; align-items: center; gap: 14px; }
+.level-meter { height: 40px; display: flex; align-items: center; gap: 4px; }
+.level-meter__bar { width: 5px; height: 40px; border-radius: 3px; background: var(--accent); transform: scaleY(.12); transform-origin: center; will-change: transform; }
+.progress-bar { width: 140px; height: 3px; border-radius: 2px; overflow: hidden; background: var(--border); }
+.progress-bar span { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--accent); animation: indeterminate 1.4s ease-in-out infinite; }
+@keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+
+/* Reduced motion: the meter falls back to a static "listening" bar set, and
+   nothing else loops. */
+@media (prefers-reduced-motion: reduce) {
+  .level-meter__bar { transform: scaleY(.4) !important; }
+  .progress-bar span { width: 100%; animation: none; }
+  .spin { animation: none; }
+}
 
 .notice { width: 100%; margin: 0; padding: 15px 17px; border-radius: 15px; display: flex; align-items: flex-start; gap: 11px; font-size: 13px; line-height: 1.4; }
 .notice--error { color: var(--danger-ink); background: var(--danger-bg); border: 1px solid var(--danger-border); }
@@ -123,7 +138,9 @@ h1 em { color: var(--accent); font-style: normal; }
 .result-card__check { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); letter-spacing: .04em; }
 .result-card p { margin: 20px 0 22px; color: var(--ink-2); font-family: Georgia, "Times New Roman", serif; font-size: 22px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .copy-button, .primary-button { min-height: 46px; border: 0; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; color: var(--on-dark); background: var(--ink); font-size: 13px; font-weight: 800; }
-.copy-button { width: 100%; }
+.copy-button { width: 100%; transition: background .18s ease; }
+.copy-button--copied { background: var(--ok); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .rewrite-trigger { width: 100%; min-height: 44px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink-4); background: transparent; font-size: 13px; font-weight: 800; }
 .rewrite-trigger:hover { border-color: var(--accent); color: var(--accent-strong); }
 .rewrite-form { margin: 0 0 14px; padding: 15px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-alt); }

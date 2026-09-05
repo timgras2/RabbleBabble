@@ -5,7 +5,9 @@ import { useDictation } from "../hooks/useDictation";
 import { useSettings } from "../hooks/useSettings";
 import { AdapterError } from "../platform/errors";
 import { MAX_REWRITE_INSTRUCTION_LENGTH } from "../platform/inference/groqClient";
+import { LevelMeter } from "./components/LevelMeter";
 import { RecordButton } from "./components/RecordButton";
+import { haptics } from "./haptics";
 
 interface RecorderScreenProps {
   readonly services: AppServices;
@@ -19,6 +21,24 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
   const [rewriteOpen, setRewriteOpen] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const [showProgress, setShowProgress] = useState(false);
+
+  const busy =
+    dictation.state === "transcribing" ||
+    dictation.state === "cleaning" ||
+    dictation.state === "rewriting";
+
+  // A short wait needs no chrome; a long one has to read as working, not hung.
+  useEffect(() => {
+    if (!busy) {
+      return;
+    }
+    const timer = setTimeout(() => setShowProgress(true), 4_000);
+    return () => {
+      clearTimeout(timer);
+      setShowProgress(false);
+    };
+  }, [busy]);
 
   useEffect(() => {
     if (dictation.state !== "recording") {
@@ -37,6 +57,7 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
     setElapsedMs(0);
     try {
       await dictation.start();
+      haptics.recordStart();
     } catch (error) {
       if (error instanceof AdapterError && error.code === "missing-api-key") {
         onOpenSettings();
@@ -57,6 +78,7 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
   };
 
   const stop = async () => {
+    haptics.recordStop();
     try {
       await dictation.stop();
     } catch {
@@ -67,11 +89,21 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
   const copy = async () => {
     const result = await services.clipboard.writeText(dictation.result?.finalText ?? "");
     if (result.status === "copied") {
-      setCopyStatus({ kind: "success", message: "Copied to clipboard." });
+      haptics.copied();
+      setCopyStatus({ kind: "success", message: "Copied" });
     } else {
       setCopyStatus({ kind: "error", message: result.message ?? "Could not copy the text." });
     }
   };
+
+  // The confirmation lives on the button the eye is already on, then reverts.
+  useEffect(() => {
+    if (copyStatus?.kind !== "success") {
+      return;
+    }
+    const timer = setTimeout(() => setCopyStatus(null), 2_000);
+    return () => clearTimeout(timer);
+  }, [copyStatus, setCopyStatus]);
 
   const errorMessage = dictation.error ? messageForError(dictation.error) : null;
   const hasResult = Boolean(dictation.result);
@@ -133,8 +165,15 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
               <Pencil size={16} /> Rewrite transcript
             </button>
           )}
-          <button type="button" className="copy-button" onClick={copy}><Clipboard size={17} /> Copy text</button>
-          {copyStatus && <div className={`copy-status copy-status--${copyStatus.kind}`} role="status">{copyStatus.message}</div>}
+          <button
+            type="button"
+            className={`copy-button${copyStatus?.kind === "success" ? " copy-button--copied" : ""}`}
+            onClick={copy}
+          >
+            {copyStatus?.kind === "success" ? <><Check size={17} /> Copied</> : <><Clipboard size={17} /> Copy text</>}
+          </button>
+          <span className="visually-hidden" role="status">{copyStatus?.kind === "success" ? "Copied to clipboard." : ""}</span>
+          {copyStatus?.kind === "error" && <div className="copy-status copy-status--error" role="alert">{copyStatus.message}</div>}
         </section>
       )}
 
@@ -150,23 +189,27 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
       </div>
 
       <section className="action-zone" aria-label="Recorder">
-        <RecordButton state={dictation.state} onStart={start} onStop={stop} />
-        <div className="action-zone__status">
-          {dictation.state === "recording" && (
+        {dictation.state === "recording" && (
+          <div className="listening-readout">
+            <LevelMeter recorder={services.recorder} active />
             <div className="recording-timer">
               {formatDuration(elapsedMs)} <span>/ 05:00</span>
             </div>
-          )}
+          </div>
+        )}
+        <RecordButton state={dictation.state} onStart={start} onStop={stop} />
+        <div className="action-zone__status">
+          {showProgress && <div className="progress-bar" aria-hidden="true"><span /></div>}
           <div className="state-line" aria-live="polite">
             {dictation.state === "idle" && (showIntro ? "Tap to start recording" : "Ready when you are")}
-            {dictation.state === "recording" && <><span className="pulse-dot" />Listening...</>}
+            {dictation.state === "recording" && "Listening..."}
             {dictation.state === "transcribing" && "Turning audio into text..."}
             {dictation.state === "cleaning" && "Polishing your words..."}
             {dictation.state === "rewriting" && "Applying your changes..."}
             {dictation.state === "completed" && "Transcript ready"}
             {dictation.state === "error" && "Something needs your attention"}
           </div>
-          {(dictation.state === "transcribing" || dictation.state === "cleaning" || dictation.state === "rewriting") && (
+          {busy && (
             <button type="button" className="cancel-button" onClick={() => void dictation.cancel()}>
               {dictation.state === "rewriting" ? "Cancel rewrite" : "Cancel request"}
             </button>
