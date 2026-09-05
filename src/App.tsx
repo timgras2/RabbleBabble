@@ -1,6 +1,7 @@
-import { ArrowLeft, Mic, Settings2 } from "lucide-react";
+import { ArrowLeft, Settings2 } from "lucide-react";
 import { useState } from "react";
 import type { AppServices } from "./app/types";
+import { WaveMark } from "./ui/components/WaveMark";
 import { RecorderScreen } from "./ui/RecorderScreen";
 import { SettingsScreen } from "./ui/SettingsScreen";
 
@@ -24,7 +25,7 @@ export function App({ services }: AppProps) {
           </div>
         ) : (
           <span className="brand">
-            <span className="brand-mark"><Mic size={19} /></span>
+            <span className="brand-mark"><WaveMark size={19} /></span>
             <span>Rabble<span>Babble</span></span>
           </span>
         )}

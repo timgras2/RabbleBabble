@@ -190,14 +190,16 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
 
       <section className="action-zone" aria-label="Recorder">
         {dictation.state === "recording" && (
-          <div className="listening-readout">
-            <LevelMeter recorder={services.recorder} active />
-            <div className="recording-timer">
-              {formatDuration(elapsedMs)} <span>/ 05:00</span>
-            </div>
+          <div className="recording-timer">
+            {formatDuration(elapsedMs)} <span>/ 05:00</span>
           </div>
         )}
-        <RecordButton state={dictation.state} onStart={start} onStop={stop} />
+        <RecordButton
+          state={dictation.state}
+          onStart={start}
+          onStop={stop}
+          recordingIndicator={<LevelMeter recorder={services.recorder} active />}
+        />
         <div className="action-zone__status">
           {showProgress && <div className="progress-bar" aria-hidden="true"><span /></div>}
           <div className="state-line" aria-live="polite">

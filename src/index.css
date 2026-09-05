@@ -10,8 +10,9 @@
   --surface-alt: #f8f6f0;
   --surface-muted: #f3f1eb;
 
-  /* Ink — descending emphasis */
-  --ink: #17212b;
+  /* Ink — descending emphasis. One calm ink carries every interactive
+     element, so the only loud colour left is the recording signal. */
+  --ink: #1b2733;
   --ink-2: #27343e;
   --ink-3: #34414a;
   --ink-4: #536069;
@@ -29,14 +30,15 @@
   --border-strong: #e9e5dc;
   --border-soft: #eeebe4;
 
-  /* Accent */
-  --accent: #ef765d;
-  --accent-strong: #b8402c;
-  --accent-deep: #d85c45;
-  --accent-tint: rgba(239, 118, 93, 0.12);
-
-  /* Semantic signals */
-  --ok: #3d7259;
+  /* Three semantic signals, used consistently, instead of one decorative
+     accent used everywhere. Recording gets the universally understood red;
+     everything else is ink or success green.
+     #cf3239 rather than a brighter red so it clears AA both as a fill
+     (cream on it: 4.85) and as text (on the cream ground: 4.66). */
+  --signal-rec: #cf3239;
+  --signal-rec-deep: #a82128;
+  --signal-ok: #3d7259;
+  --focus-tint: rgba(27, 39, 51, 0.14);
   --danger: #b05243;
   --danger-ink: #8d3e32;
   --danger-ink-2: #a45b4f;
@@ -79,19 +81,17 @@
     --muted-2: #a49b8f;
     --muted-3: #a09789;
     --muted-4: #9c9386;
-    /* Text sitting on --ink or --accent, both light in this theme. */
+    /* Text sitting on --ink or --signal-rec, both light in this theme. */
     --on-dark: #171512;
 
     --border: #38332c;
     --border-strong: #332e28;
     --border-soft: #2e2a24;
 
-    --accent: #ef7d64;
-    --accent-strong: #f5947f;
-    --accent-deep: #b8482f;
-    --accent-tint: rgba(239, 118, 93, 0.22);
-
-    --ok: #6fbf95;
+    --signal-rec: #ff6b6f;
+    --signal-rec-deep: #8f2b2f;
+    --signal-ok: #6fbf95;
+    --focus-tint: rgba(242, 238, 231, 0.2);
     --danger: #f08d7c;
     --danger-ink: #f7c3b8;
     --danger-ink-2: #e0a396;
@@ -116,7 +116,7 @@ button:disabled { cursor: not-allowed; }
 
 /* One visible focus treatment for every control, so keyboard and switch-access
    users are never left guessing where they are. */
-:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; border-radius: 6px; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 6px; }
 
 /* The recorder is a fixed-height, non-scrolling screen: the record button must
    sit in the thumb zone on every visit without the page moving under it.
@@ -127,7 +127,7 @@ button:disabled { cursor: not-allowed; }
 .header-left { display: flex; align-items: center; gap: 6px; }
 .header-title { color: var(--ink); font-size: 16px; font-weight: 800; letter-spacing: -0.02em; }
 .brand { border: 0; background: transparent; display: inline-flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--ink); font-size: 16px; font-weight: 800; letter-spacing: -0.03em; }
-.brand > span:last-child > span { color: var(--accent); }
+.brand > span:last-child > span { color: var(--ink); }
 .brand-mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: var(--on-dark); background: var(--ink); }
 .icon-button { width: 44px; height: 44px; margin: 0 -10px 0 0; border: 0; border-radius: 12px; display: grid; place-items: center; color: var(--ink-4); background: transparent; }
 .header-left .icon-button { margin: 0 0 0 -10px; }
@@ -147,20 +147,21 @@ button:disabled { cursor: not-allowed; }
 .action-zone { flex: 0 0 auto; padding-top: 16px; display: grid; justify-items: center; gap: 12px; }
 .action-zone__status { display: grid; justify-items: center; gap: 6px; min-height: 40px; }
 .hero-panel { padding: 8px 0 4px; }
-.eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
-.eyebrow__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-tint); }
-h1 { margin: 0 0 14px; color: var(--ink); font-family: Georgia, "Times New Roman", serif; font-size: clamp(34px, 7vw, 48px); font-weight: 500; letter-spacing: -.05em; line-height: 1; }
-h1 em { color: var(--accent); font-style: normal; }
+/* Sans for all chrome, serif reserved for the transcript. That contrast --
+   quiet sans UI around warm serif content -- is the typographic identity;
+   a serif display headline was doing landing-page work. */
+h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; }
+h1 em { color: inherit; font-style: normal; }
 .hero-copy, .settings-heading p { max-width: 430px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 .record-button { width: 100%; max-width: 330px; min-width: 0; min-height: 74px; border: 0; border-radius: 20px; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--on-dark); background: var(--ink); box-shadow: 0 10px 0 var(--lip), var(--shadow-btn); font-size: 16px; font-weight: 800; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
 .record-button:hover { transform: translateY(-2px); box-shadow: 0 12px 0 var(--lip), var(--shadow-btn-hover); }
 .record-button:active { transform: translateY(5px); box-shadow: 0 4px 0 var(--lip), var(--shadow-btn-active); }
-.record-button--active { background: var(--accent); box-shadow: 0 10px 0 var(--accent-deep), 0 18px 30px rgba(216, 92, 69, .2); }
-.record-button--active:hover { box-shadow: 0 12px 0 var(--accent-deep), 0 21px 32px rgba(216, 92, 69, .24); }
+.record-button--active { background: var(--signal-rec); box-shadow: 0 10px 0 var(--signal-rec-deep), 0 18px 30px rgba(0, 0, 0, .2); }
+.record-button--active:hover { box-shadow: 0 12px 0 var(--signal-rec-deep), 0 21px 32px rgba(0, 0, 0, .24); }
 .record-button:disabled { opacity: .75; transform: none; box-shadow: 0 8px 0 var(--lip); }
 .record-button__icon { width: 21px; height: 21px; }
 .state-line { min-height: 20px; color: var(--muted-2); font-size: 13px; font-weight: 700; text-align: center; }
-.recording-timer { color: var(--accent-strong); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em; }
+.recording-timer { color: var(--signal-rec); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em; }
 .recording-timer span { color: var(--muted-4); font-size: 13px; font-weight: 600; }
 /* Visually a small text link, but padded out to the 44px minimum hit area. */
 .cancel-button { min-height: 44px; padding: 3px 16px; border: 0; color: var(--muted-4); background: transparent; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
@@ -169,11 +170,12 @@ h1 em { color: var(--accent); font-style: normal; }
 
 /* Live input level -- proof the app is hearing *you*, and the one loud element
    in the UI. Bars are scaled from rAF in LevelMeter, never from React state. */
-.listening-readout { display: flex; align-items: center; gap: 14px; }
-.level-meter { height: 40px; display: flex; align-items: center; gap: 4px; }
-.level-meter__bar { width: 5px; height: 40px; border-radius: 3px; background: var(--accent); transform: scaleY(.12); transform-origin: center; will-change: transform; }
+/* Inside the record button while recording, so the mark, the button and the
+   recording state are all the same object. Inherits the button's text colour. */
+.level-meter { height: 22px; display: flex; align-items: center; gap: 3px; }
+.level-meter__bar { width: 3px; height: 22px; border-radius: 2px; background: currentColor; transform: scaleY(.12); transform-origin: center; will-change: transform; }
 .progress-bar { width: 140px; height: 3px; border-radius: 2px; overflow: hidden; background: var(--border); }
-.progress-bar span { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--accent); animation: indeterminate 1.4s ease-in-out infinite; }
+.progress-bar span { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--ink); animation: indeterminate 1.4s ease-in-out infinite; }
 @keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
 /* Reduced motion: the meter falls back to a static "listening" bar set, and
@@ -189,21 +191,22 @@ h1 em { color: var(--accent); font-style: normal; }
 .notice div { flex: 1; display: grid; gap: 2px; }
 .notice strong { font-size: 13px; }
 .notice span { color: var(--danger-ink-2); }
-.text-button { align-self: center; min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--accent-strong); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.text-button { align-self: center; min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--ink); font-size: 12px; font-weight: 800; white-space: nowrap; }
 .result-card { width: 100%; margin: 0; padding: 24px; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); }
-.result-card__header { display: flex; justify-content: space-between; color: var(--muted-2); font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
-.result-card__check { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); letter-spacing: .04em; }
+/* Sentence case, no tracking: the all-caps tracked label was decoration. */
+.result-card__header { display: flex; justify-content: space-between; color: var(--muted-2); font-size: 12px; font-weight: 700; }
+.result-card__check { display: inline-flex; align-items: center; gap: 4px; color: var(--signal-ok); }
 .result-card p { margin: 20px 0 22px; color: var(--ink-2); font-family: Georgia, "Times New Roman", serif; font-size: 22px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .copy-button, .primary-button { min-height: 46px; border: 0; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; color: var(--on-dark); background: var(--ink); font-size: 13px; font-weight: 800; }
 .copy-button { width: 100%; transition: background .18s ease; }
-.copy-button--copied { background: var(--ok); }
+.copy-button--copied { background: var(--signal-ok); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .rewrite-trigger { width: 100%; min-height: 44px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink-4); background: transparent; font-size: 13px; font-weight: 800; }
-.rewrite-trigger:hover { border-color: var(--accent); color: var(--accent-strong); }
+.rewrite-trigger:hover { border-color: var(--ink); color: var(--ink); }
 .rewrite-form { margin: 0 0 14px; padding: 15px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-alt); }
 .rewrite-form label { display: block; margin-bottom: 9px; color: var(--ink-3); font-size: 12px; font-weight: 800; }
 .rewrite-form textarea { width: 100%; min-height: 92px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; resize: vertical; outline: 0; color: var(--ink-2); background: var(--surface); font-size: 13px; line-height: 1.45; }
-.rewrite-form textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.rewrite-form textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px var(--focus-tint); }
 .rewrite-form textarea:disabled { opacity: .65; }
 .rewrite-form__meta { margin-top: 5px; color: var(--muted-3); font-size: 10px; text-align: right; }
 .rewrite-form__actions { margin-top: 11px; display: grid; grid-template-columns: 1fr auto; gap: 8px; }
@@ -215,7 +218,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .rewrite-form__apply:disabled { cursor: not-allowed; opacity: .55; }
 .rewrite-form__cancel { padding: 0 14px; border: 1px solid var(--border); color: var(--muted); background: transparent; }
 .inline-warning, .copy-status { margin: 0 0 15px; display: flex; align-items: center; gap: 6px; color: var(--warn); font-size: 12px; line-height: 1.4; }
-.copy-status { margin: 11px 0 0; color: var(--ok); justify-content: center; }
+.copy-status { margin: 11px 0 0; color: var(--signal-ok); justify-content: center; }
 .copy-status--error { color: var(--danger); }
 .trust-line { padding: 4px 8px 0; display: flex; justify-content: center; align-items: center; gap: 7px; color: var(--muted-3); font-size: 11px; text-align: center; }
 
@@ -226,7 +229,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .field-group label span { color: var(--muted-4); font-weight: 500; }
 .field-group small { color: var(--muted-3); font-size: 11px; line-height: 1.45; }
 .input-wrap { min-height: 48px; padding: 0 13px; border: 1px solid var(--border); border-radius: 12px; display: flex; align-items: center; gap: 9px; color: var(--muted-3); background: var(--surface); }
-.input-wrap:focus-within, .field-group > input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); outline: 0; }
+.input-wrap:focus-within, .field-group > input:focus { border-color: var(--ink); box-shadow: 0 0 0 3px var(--focus-tint); outline: 0; }
 .input-wrap input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink-2); background: transparent; font-size: 14px; }
 .input-action { width: 44px; height: 44px; margin-right: -9px; border: 0; display: grid; place-items: center; flex: 0 0 auto; color: var(--muted-2); background: transparent; }
 .field-group > input { min-height: 48px; padding: 0 13px; border: 1px solid var(--border); border-radius: 12px; outline: 0; color: var(--ink-2); background: var(--surface); font-size: 14px; }
@@ -238,13 +241,13 @@ h1 em { color: var(--accent); font-style: normal; }
 /* Keeps the switch visually small while giving it a 44px-tall hit area. */
 .toggle::after { content: ""; position: absolute; top: -9px; right: 0; bottom: -9px; left: 0; }
 .toggle span { width: 20px; height: 20px; display: block; border-radius: 50%; background: var(--surface); transition: transform .2s ease; }
-.toggle--on { background: var(--accent); }
+.toggle--on { background: var(--ink); }
 .toggle--on span { transform: translateX(19px); }
 .model-note { margin: 2px 0 23px; padding: 14px 15px; border-radius: 12px; display: grid; gap: 4px; background: var(--surface-muted); }
 .model-note span, .model-note small { color: var(--muted-3); font-size: 11px; }
 .model-note strong { color: var(--ink-4); font-size: 13px; }
 .primary-button { width: 100%; background: var(--ink); }
-.saved-message { margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--ok); font-size: 12px; font-weight: 700; }
+.saved-message { margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--signal-ok); font-size: 12px; font-weight: 700; }
 .danger-zone { margin-top: 20px; padding: 18px 2px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .danger-zone div { display: grid; gap: 4px; }
 .danger-zone strong { color: var(--ink-4); font-size: 12px; }

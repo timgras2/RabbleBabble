@@ -1,13 +1,16 @@
 import { LoaderCircle, Mic, Square } from "lucide-react";
+import type { ReactNode } from "react";
 import type { DictationState } from "../../services/types";
 
 interface RecordButtonProps {
   readonly state: DictationState;
   readonly onStart: () => void;
   readonly onStop: () => void;
+  /** Shown in place of the icon while recording -- the live level meter. */
+  readonly recordingIndicator?: ReactNode;
 }
 
-export function RecordButton({ state, onStart, onStop }: RecordButtonProps) {
+export function RecordButton({ state, onStart, onStop, recordingIndicator }: RecordButtonProps) {
   const recording = state === "recording";
   const busy = state === "transcribing" || state === "cleaning" || state === "rewriting";
   const disabled = busy;
@@ -21,6 +24,14 @@ export function RecordButton({ state, onStart, onStop }: RecordButtonProps) {
           ? "Rewriting transcript"
         : "Start recording";
 
+  const leading = busy ? (
+    <LoaderCircle className="record-button__icon spin" />
+  ) : recording ? (
+    (recordingIndicator ?? <Square className="record-button__icon" />)
+  ) : (
+    <Mic className="record-button__icon" />
+  );
+
   return (
     <button
       className={`record-button${recording ? " record-button--active" : ""}`}
@@ -29,7 +40,7 @@ export function RecordButton({ state, onStart, onStop }: RecordButtonProps) {
       disabled={disabled}
       onClick={recording ? onStop : onStart}
     >
-      {busy ? <LoaderCircle className="record-button__icon spin" /> : recording ? <Square className="record-button__icon" /> : <Mic className="record-button__icon" />}
+      {leading}
       <span>{label}</span>
     </button>
   );
