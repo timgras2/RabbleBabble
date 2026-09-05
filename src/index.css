@@ -4,11 +4,15 @@
    and the identity pass are value swaps here, not edits across the stylesheet.
    --------------------------------------------------------------------------- */
 :root {
-  /* Grounds */
-  --bg: #f7f6f2;
-  --surface: #fffdf9;
-  --surface-alt: #f8f6f0;
-  --surface-muted: #f3f1eb;
+  /* Grounds — warm paper, and a glow rising off the dial. The warmth lives in
+     the grounds rather than in a decorative accent, so the colour discipline
+     below survives while the screen still feels made rather than blank. */
+  --bg: #f8f5ef;
+  --surface: #fffdf7;
+  --surface-alt: #f6f2e9;
+  --surface-muted: #f1ece1;
+  --glow-near: rgba(229, 72, 77, 0.20);
+  --glow-far: rgba(229, 72, 77, 0.07);
 
   /* Ink — descending emphasis. One calm ink carries every interactive
      element, so the only loud colour left is the recording signal. */
@@ -21,7 +25,9 @@
      smallest text in the app, which is exactly where contrast matters most. */
   --muted: #5b656d;
   --muted-2: #616a71;
-  --muted-3: #666d70;
+  /* Darkened a step when the grounds warmed: this one has to clear 4.5:1 on
+     --surface-muted too, which is the darkest ground it sits on. */
+  --muted-3: #62696c;
   --muted-4: #6a6f6f;
   --on-dark: #fffaf1;
 
@@ -33,10 +39,13 @@
   /* Three semantic signals, used consistently, instead of one decorative
      accent used everywhere. Recording gets the universally understood red;
      everything else is ink or success green.
-     #cf3239 rather than a brighter red so it clears AA both as a fill
-     (cream on it: 4.85) and as text (on the cream ground: 4.66). */
-  --signal-rec: #cf3239;
-  --signal-rec-deep: #a82128;
+     Two reds, because they answer to different rules: the dial carries only an
+     icon, so it is a graphic (3:1 -- white on it is 3.76) and can be vivid,
+     while red *text* needs 4.5:1 and uses the darker --signal-rec-ink. */
+  --signal-rec: #e5484d;
+  --signal-rec-deep: #b8323a;
+  --signal-rec-ink: #c62f36;
+  --signal-rec-shadow: rgba(184, 50, 58, 0.34);
   --signal-ok: #3d7259;
   --focus-tint: rgba(27, 39, 51, 0.14);
   --danger: #b05243;
@@ -72,6 +81,8 @@
     --surface: #211e1a;
     --surface-alt: #26221d;
     --surface-muted: #2b2721;
+    --glow-near: rgba(229, 72, 77, 0.17);
+    --glow-far: rgba(229, 72, 77, 0.05);
 
     --ink: #f2eee7;
     --ink-2: #e8e2d9;
@@ -88,8 +99,12 @@
     --border-strong: #332e28;
     --border-soft: #2e2a24;
 
-    --signal-rec: #ff6b6f;
+    /* The dial stays the same red in both themes -- a record button is red
+       everywhere -- but red text has to lighten to clear AA on a dark ground. */
+    --signal-rec: #e5484d;
     --signal-rec-deep: #8f2b2f;
+    --signal-rec-ink: #ff8a8d;
+    --signal-rec-shadow: rgba(0, 0, 0, 0.45);
     --signal-ok: #6fbf95;
     --focus-tint: rgba(242, 238, 231, 0.2);
     --danger: #f08d7c;
@@ -121,8 +136,9 @@ button:disabled { cursor: not-allowed; }
 /* The recorder is a fixed-height, non-scrolling screen: the record button must
    sit in the thumb zone on every visit without the page moving under it.
    Settings is an ordinary scrolling page. */
-.app-shell { width: 100%; min-width: 0; min-height: 100dvh; height: 100dvh; padding: 0 24px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; overflow: hidden; }
-.app-shell--scroll { height: auto; overflow-y: auto; padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+.app-shell { width: 100%; min-width: 0; min-height: 100dvh; height: 100dvh; padding: 0 24px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; overflow: hidden;
+  background: radial-gradient(125% 52% at 50% 100%, var(--glow-near) 0%, var(--glow-far) 42%, transparent 70%); }
+.app-shell--scroll { height: auto; overflow-y: auto; padding-bottom: calc(40px + env(safe-area-inset-bottom)); background: none; }
 .app-header { width: 100%; max-width: 700px; margin: 0 auto; flex: 0 0 auto; height: 64px; display: flex; align-items: center; justify-content: space-between; }
 .header-left { display: flex; align-items: center; gap: 6px; }
 .header-title { color: var(--ink); font-size: 16px; font-weight: 800; letter-spacing: -0.02em; }
@@ -140,28 +156,36 @@ button:disabled { cursor: not-allowed; }
    from the top instead of being clipped -- flex centring would hide the head
    of an overflowing transcript, and flex children would shrink rather than
    scroll. */
-.transcript-zone { flex: 1 1 auto; min-height: 0; display: grid; align-content: safe center; gap: 14px; overflow-y: auto; padding: 4px 0; }
+.transcript-zone { flex: 0 1 auto; min-height: 0; display: grid; align-content: safe center; gap: 14px; overflow-y: auto; padding: 6vh 0 4px; }
 .transcript-zone > * { min-height: 0; }
 .transcript-placeholder { margin: 0; color: var(--muted-3); font-family: Georgia, "Times New Roman", serif; font-size: 18px; text-align: center; }
 /* Zone 2: the primary action, anchored where a thumb rests. */
-.action-zone { flex: 0 0 auto; padding-top: 16px; display: grid; justify-items: center; gap: 12px; }
+/* `margin-top: auto` holds the dial in the lower third whether the transcript
+   is empty or overflowing, so it never moves; the bottom padding keeps air
+   under it instead of pinning it to the edge. */
+.action-zone { flex: 0 0 auto; margin-top: auto; padding: 0 0 6vh; display: grid; justify-items: center; gap: 16px; }
 .action-zone__status { display: grid; justify-items: center; gap: 6px; min-height: 40px; }
-.hero-panel { padding: 8px 0 4px; }
+.hero-panel { padding: 8px 0 4px; text-align: center; }
 /* Sans for all chrome, serif reserved for the transcript. That contrast --
    quiet sans UI around warm serif content -- is the typographic identity;
    a serif display headline was doing landing-page work. */
 h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; }
 h1 em { color: inherit; font-style: normal; }
 .hero-copy, .settings-heading p { max-width: 430px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
-.record-button { width: 100%; max-width: 330px; min-width: 0; min-height: 74px; border: 0; border-radius: 20px; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--on-dark); background: var(--ink); box-shadow: 0 10px 0 var(--lip), var(--shadow-btn); font-size: 16px; font-weight: 800; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
-.record-button:hover { transform: translateY(-2px); box-shadow: 0 12px 0 var(--lip), var(--shadow-btn-hover); }
-.record-button:active { transform: translateY(5px); box-shadow: 0 4px 0 var(--lip), var(--shadow-btn-active); }
-.record-button--active { background: var(--signal-rec); box-shadow: 0 10px 0 var(--signal-rec-deep), 0 18px 30px rgba(0, 0, 0, .2); }
-.record-button--active:hover { box-shadow: 0 12px 0 var(--signal-rec-deep), 0 21px 32px rgba(0, 0, 0, .24); }
-.record-button:disabled { opacity: .75; transform: none; box-shadow: 0 8px 0 var(--lip); }
-.record-button__icon { width: 21px; height: 21px; }
-.state-line { min-height: 20px; color: var(--muted-2); font-size: 13px; font-weight: 700; text-align: center; }
-.recording-timer { color: var(--signal-rec); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em; }
+.hero-copy { margin-inline: auto; }
+/* A dial, and red at rest -- that is simply what a record button is, and it
+   gives the resting state the one bit of colour it needs. It carries no
+   visible text (the state line below names the action), which is what lets
+   the red be vivid: an icon only has to clear 3:1, not 4.5:1. */
+.record-button { width: 116px; height: 116px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--signal-rec); box-shadow: 0 8px 0 var(--signal-rec-deep), 0 16px 30px var(--signal-rec-shadow); transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
+.record-button:hover { transform: translateY(-2px); box-shadow: 0 10px 0 var(--signal-rec-deep), 0 20px 34px var(--signal-rec-shadow); }
+.record-button:active { transform: translateY(4px); box-shadow: 0 4px 0 var(--signal-rec-deep), 0 8px 16px var(--signal-rec-shadow); }
+.record-button:disabled { opacity: .8; transform: none; box-shadow: 0 6px 0 var(--signal-rec-deep); }
+.record-button__icon { width: 40px; height: 40px; }
+/* With no text on the dial, this line names the action -- so it carries more
+   weight than it did when it was only a status caption. */
+.state-line { min-height: 20px; color: var(--ink-3); font-size: 14px; font-weight: 700; text-align: center; }
+.recording-timer { color: var(--signal-rec-ink); font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .02em; }
 .recording-timer span { color: var(--muted-4); font-size: 13px; font-weight: 600; }
 /* Visually a small text link, but padded out to the 44px minimum hit area. */
 .cancel-button { min-height: 44px; padding: 3px 16px; border: 0; color: var(--muted-4); background: transparent; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
@@ -172,8 +196,8 @@ h1 em { color: inherit; font-style: normal; }
    in the UI. Bars are scaled from rAF in LevelMeter, never from React state. */
 /* Inside the record button while recording, so the mark, the button and the
    recording state are all the same object. Inherits the button's text colour. */
-.level-meter { height: 22px; display: flex; align-items: center; gap: 3px; }
-.level-meter__bar { width: 3px; height: 22px; border-radius: 2px; background: currentColor; transform: scaleY(.12); transform-origin: center; will-change: transform; }
+.level-meter { height: 42px; display: flex; align-items: center; gap: 4px; }
+.level-meter__bar { width: 4px; height: 42px; border-radius: 2px; background: currentColor; transform: scaleY(.12); transform-origin: center; will-change: transform; }
 .progress-bar { width: 140px; height: 3px; border-radius: 2px; overflow: hidden; background: var(--border); }
 .progress-bar span { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--ink); animation: indeterminate 1.4s ease-in-out infinite; }
 @keyframes indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }

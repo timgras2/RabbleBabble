@@ -41,7 +41,9 @@ export function RecordButton({ state, onStart, onStop, recordingIndicator }: Rec
       onClick={recording ? onStop : onStart}
     >
       {leading}
-      <span>{label}</span>
+      {/* The dial shows no text -- the state line below names the action --
+          but the label stays in the DOM for assistive tech. */}
+      <span className="visually-hidden">{label}</span>
     </button>
   );
 }

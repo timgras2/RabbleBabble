@@ -203,8 +203,8 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
         <div className="action-zone__status">
           {showProgress && <div className="progress-bar" aria-hidden="true"><span /></div>}
           <div className="state-line" aria-live="polite">
-            {dictation.state === "idle" && (showIntro ? "Tap to start recording" : "Ready when you are")}
-            {dictation.state === "recording" && "Listening..."}
+            {dictation.state === "idle" && "Tap to start recording"}
+            {dictation.state === "recording" && "Listening... tap to stop"}
             {dictation.state === "transcribing" && "Turning audio into text..."}
             {dictation.state === "cleaning" && "Polishing your words..."}
             {dictation.state === "rewriting" && "Applying your changes..."}
