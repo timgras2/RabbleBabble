@@ -304,3 +304,31 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
   .danger-zone { align-items: flex-start; flex-direction: column; }
   .danger-button { width: 100%; justify-content: center; }
 }
+
+/* Sign-in screen */
+.signin-screen {
+  gap: 1.25rem;
+}
+
+.signin-screen h1 {
+  font-size: 1.35rem;
+  margin: 0 0 0.4rem;
+}
+
+.signin-sent {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.15rem;
+}
+
+.signin-sent p {
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.signin-sent strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}

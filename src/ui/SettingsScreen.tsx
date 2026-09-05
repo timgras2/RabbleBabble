@@ -1,7 +1,9 @@
 import { Check, Eye, EyeOff, KeyRound, Languages, Save, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { SERVICE_MODE } from "../app/mode";
 import type { AppServices } from "../app/types";
 import { useSettings } from "../hooks/useSettings";
+import { AccountPanel } from "./settings/AccountPanel";
 
 interface SettingsScreenProps {
   readonly services: AppServices;
@@ -23,7 +25,11 @@ export function SettingsScreen({ services }: SettingsScreenProps) {
 
   const save = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    update({ groqApiKey: apiKey.trim(), cleanupEnabled, language: language.trim() });
+    update({
+      ...(SERVICE_MODE ? {} : { groqApiKey: apiKey.trim() }),
+      cleanupEnabled,
+      language: language.trim(),
+    });
     setSaved(true);
   };
 
@@ -36,19 +42,27 @@ export function SettingsScreen({ services }: SettingsScreenProps) {
   return (
     <main className="screen settings-screen">
       <section className="settings-heading">
-        <p>These settings stay on this device. Your key is used directly by your browser to reach Groq.</p>
+        <p>
+          {SERVICE_MODE
+            ? "Audio is sent to RabbleBabble, transcribed, and never stored. Preferences stay on this device."
+            : "These settings stay on this device. Your key is used directly by your browser to reach Groq."}
+        </p>
       </section>
 
       <form className="settings-form" onSubmit={save}>
-        <div className="field-group">
-          <label htmlFor="groq-key">Groq API key</label>
-          <div className="input-wrap">
-            <KeyRound size={18} />
-            <input id="groq-key" type={showKey ? "text" : "password"} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="gsk_..." autoComplete="off" />
-            <button type="button" className="input-action" aria-label={showKey ? "Hide API key" : "Show API key"} onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+        {SERVICE_MODE ? (
+          <AccountPanel services={services} />
+        ) : (
+          <div className="field-group">
+            <label htmlFor="groq-key">Groq API key</label>
+            <div className="input-wrap">
+              <KeyRound size={18} />
+              <input id="groq-key" type={showKey ? "text" : "password"} value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="gsk_..." autoComplete="off" />
+              <button type="button" className="input-action" aria-label={showKey ? "Hide API key" : "Show API key"} onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+            </div>
+            <small>Stored in localStorage for this trusted device. Never commit or share it.</small>
           </div>
-          <small>Stored in localStorage for this trusted device. Never commit or share it.</small>
-        </div>
+        )}
 
         <div className="setting-row">
           <div><strong>Clean up transcripts</strong><span>Fix grammar and punctuation after transcription.</span></div>
@@ -67,10 +81,12 @@ export function SettingsScreen({ services }: SettingsScreenProps) {
         {saved && <div className="saved-message" role="status"><Check size={16} /> Settings saved on this device.</div>}
       </form>
 
-      <div className="danger-zone">
-        <div><strong>Reset API key</strong><span>Remove the saved key from this device.</span></div>
-        <button type="button" className="danger-button" onClick={clear}><Trash2 size={16} /> Clear key</button>
-      </div>
+      {!SERVICE_MODE && (
+        <div className="danger-zone">
+          <div><strong>Reset API key</strong><span>Remove the saved key from this device.</span></div>
+          <button type="button" className="danger-button" onClick={clear}><Trash2 size={16} /> Clear key</button>
+        </div>
+      )}
     </main>
   );
 }

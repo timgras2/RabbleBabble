@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
 import { AdapterError } from "../platform/errors";
+import { messageForError } from "./errorMessages";
+import { SERVICE_MODE } from "../app/mode";
+import type { AdapterErrorCode } from "../platform/errors";
 import { MAX_INSTRUCTION_CHARS } from "../shared/limits";
 import { LevelMeter } from "./components/LevelMeter";
 import { RecordButton } from "./components/RecordButton";
@@ -11,9 +14,10 @@ import { haptics } from "./haptics";
 interface RecorderScreenProps {
   readonly services: AppServices;
   readonly onOpenSettings: () => void;
+  readonly onSignIn: () => void;
 }
 
-export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps) {
+export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderScreenProps) {
   const dictation = useDictation(services);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
@@ -57,8 +61,12 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
       await dictation.start();
       haptics.recordStart();
     } catch (error) {
-      if (error instanceof AdapterError && error.code === "missing-api-key") {
-        onOpenSettings();
+      if (error instanceof AdapterError) {
+        if (error.code === "missing-api-key" && !SERVICE_MODE) {
+          onOpenSettings();
+        } else if (error.code === "not-authenticated") {
+          onSignIn();
+        }
       }
     }
   };
@@ -179,9 +187,7 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
           <div className="notice notice--error" role="alert">
             <AlertCircle size={19} />
             <div><strong>{errorMessage.title}</strong><span>{errorMessage.detail}</span></div>
-            {dictation.error?.code === "missing-api-key" || dictation.error?.code === "api-unauthorized" ? (
-              <button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button>
-            ) : null}
+            <ErrorAction code={dictation.error?.code} onOpenSettings={onOpenSettings} onSignIn={onSignIn} />
           </div>
         )}
       </div>
@@ -237,30 +243,25 @@ function useStateCopyStatus() {
   return [status, setStatus] as const;
 }
 
-function messageForError(error: AdapterError): { title: string; detail: string } {
-  switch (error.code) {
-    case "missing-api-key": return { title: "Add your Groq API key", detail: "Open Settings to enter it before recording." };
-    case "mic-denied": return { title: "Microphone permission is off", detail: "Allow microphone access for this site in Chrome, then try again." };
-    case "mic-unavailable": return { title: "No microphone available", detail: "Check the device microphone and Chrome permissions." };
-    case "offline": return { title: "You are offline", detail: "Reconnect to the internet. Recordings are not queued." };
-    case "api-unauthorized": return { title: "The API key was rejected", detail: "Replace it with a valid Groq key in Settings." };
-    case "api-rate-limited": return { title: "Groq rate limit reached", detail: "Wait a moment and try again." };
-    case "recording-too-long": return { title: "Recording is too long", detail: "Keep recordings under five minutes." };
-    case "recording-too-large": return { title: "Recording is too large", detail: "Keep recordings under 25 MB." };
-    case "api-timeout": return { title: "The request timed out", detail: "Check your connection and try again." };
-    case "invalid-instruction": return { title: "Add a rewrite instruction", detail: "Describe how you want the transcript changed." };
-    case "rewrite-too-large": return { title: "Rewrite request is too long", detail: "Shorten the transcript or rewrite instruction and try again." };
-    case "cancelled": return { title: "Request cancelled", detail: "No changes were made to the transcript." };
-    case "api-server": return { title: "Could not reach Groq", detail: safeNetworkDetail(error) };
-    case "api-invalid": return { title: "Groq rejected the request", detail: "Check the recording format and try again." };
-    default: return { title: "Request failed", detail: error.message };
-  }
-}
 
-function safeNetworkDetail(error: AdapterError): string {
-  const cause = error.cause;
-  if (cause instanceof Error && cause.message && cause.message.length < 120) {
-    return `${cause.message}. Check the HTTPS connection and the Network tab for a blocked request.`;
+
+function ErrorAction({
+  code,
+  onOpenSettings,
+  onSignIn,
+}: {
+  readonly code: AdapterErrorCode | undefined;
+  readonly onOpenSettings: () => void;
+  readonly onSignIn: () => void;
+}) {
+  if (code === "not-authenticated" || (SERVICE_MODE && code === "missing-api-key")) {
+    return <button type="button" className="text-button" onClick={onSignIn}>Sign in</button>;
   }
-  return "The browser could not complete the request. Check the HTTPS connection and the Network tab for a blocked request.";
+  if (code === "quota-exceeded") {
+    return <button type="button" className="text-button" onClick={onOpenSettings}>See usage</button>;
+  }
+  if (code === "missing-api-key" || code === "api-unauthorized") {
+    return <button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button>;
+  }
+  return null;
 }
