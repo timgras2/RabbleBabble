@@ -4,9 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --config src/vite.config.mjs",
-    "build": "tsc --noEmit && vite build --config src/vite.config.mjs",
-    "preview": "vite preview --config src/vite.config.mjs",
+    "dev": "vite --config src/vite.config.mjs --mode service",
+    "dev:byok": "vite --config src/vite.config.mjs --mode byok",
+    "build": "npm run build:service",
+    "build:service": "tsc --noEmit && vite build --config src/vite.config.mjs --mode service",
+    "build:byok": "tsc --noEmit && vite build --config src/vite.config.mjs --mode byok",
+    "preview": "vite preview --config src/vite.config.mjs --mode service",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

@@ -36,8 +36,10 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build PWA
-        run: npm run build
+      # GitHub Pages hosts the bring-your-own-key build. The hosted service
+      # build needs a same-origin Worker, which Pages cannot provide.
+      - name: Build PWA (bring-your-own-key)
+        run: npm run build:byok
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
