@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
 import { AdapterError } from "../platform/errors";
-import { MAX_REWRITE_INSTRUCTION_LENGTH } from "../platform/inference/groqClient";
+import { MAX_INSTRUCTION_CHARS } from "../shared/limits";
 import { LevelMeter } from "./components/LevelMeter";
 import { RecordButton } from "./components/RecordButton";
 import { haptics } from "./haptics";
@@ -144,11 +144,11 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
                 value={rewriteInstruction}
                 onChange={(event) => setRewriteInstruction(event.target.value)}
                 placeholder="Make it concise, turn it into bullet points, or rewrite it as an email..."
-                maxLength={MAX_REWRITE_INSTRUCTION_LENGTH}
+                maxLength={MAX_INSTRUCTION_CHARS}
                 disabled={dictation.state === "rewriting"}
                 autoFocus
               />
-              <div className="rewrite-form__meta">{rewriteInstruction.length}/{MAX_REWRITE_INSTRUCTION_LENGTH}</div>
+              <div className="rewrite-form__meta">{rewriteInstruction.length}/{MAX_INSTRUCTION_CHARS}</div>
               <div className="rewrite-form__actions">
                 <button className="rewrite-form__apply" type="submit" disabled={dictation.state === "rewriting" || !rewriteInstruction.trim()}>
                   {dictation.state === "rewriting" ? "Rewriting..." : "Apply rewrite"}

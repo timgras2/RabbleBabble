@@ -1,4 +1,5 @@
 import { AdapterError } from "../errors";
+import { MAX_AUDIO_BYTES, MAX_AUDIO_MS } from "../../shared/limits";
 import type { Unsubscribe } from "../types";
 import { negotiateMimeType } from "./mimeNegotiation";
 import type {
@@ -8,8 +9,8 @@ import type {
   RecordingState,
 } from "./types";
 
-const DEFAULT_MAX_DURATION_MS = 300_000;
-const DEFAULT_MAX_BYTES = 26_214_400;
+const DEFAULT_MAX_DURATION_MS = MAX_AUDIO_MS;
+const DEFAULT_MAX_BYTES = MAX_AUDIO_BYTES;
 
 export class MediaRecorderAdapter implements AudioRecorder {
   private currentState: RecordingState = "idle";

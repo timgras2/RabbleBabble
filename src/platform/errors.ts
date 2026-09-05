@@ -1,22 +1,6 @@
-export type AdapterErrorCode =
-  | "mic-denied"
-  | "mic-unavailable"
-  | "recording-invalid"
-  | "recording-too-long"
-  | "recording-too-large"
-  | "offline"
-  | "missing-api-key"
-  | "api-unauthorized"
-  | "api-rate-limited"
-  | "api-invalid"
-  | "api-server"
-  | "api-timeout"
-  | "empty-transcript"
-  | "invalid-instruction"
-  | "rewrite-too-large"
-  | "cancelled"
-  | "clipboard-unavailable"
-  | "clipboard-denied";
+import type { AdapterErrorCode } from "../shared/errorCodes";
+
+export type { AdapterErrorCode };
 
 export interface AdapterErrorOptions {
   readonly code: AdapterErrorCode;
