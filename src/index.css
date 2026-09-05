@@ -43,7 +43,11 @@
      icon, so it is a graphic (3:1 -- white on it is 3.76) and can be vivid,
      while red *text* needs 4.5:1 and uses the darker --signal-rec-ink. */
   --signal-rec: #e5484d;
-  --signal-rec-deep: #b8323a;
+  /* Gradient stops for the dial face. Kept shallow on purpose: the white icon
+     has to clear 3:1 against the lightest point, and --signal-rec-lift is
+     3.31. A stronger lift looks better and fails the icon. */
+  --signal-rec-lift: #ef5b60;
+  --signal-rec-sink: #d43a41;
   --signal-rec-ink: #c62f36;
   --signal-rec-shadow: rgba(184, 50, 58, 0.34);
   --signal-ok: #3d7259;
@@ -102,7 +106,8 @@
     /* The dial stays the same red in both themes -- a record button is red
        everywhere -- but red text has to lighten to clear AA on a dark ground. */
     --signal-rec: #e5484d;
-    --signal-rec-deep: #8f2b2f;
+    --signal-rec-lift: #ef5b60;
+    --signal-rec-sink: #d43a41;
     --signal-rec-ink: #ff8a8d;
     --signal-rec-shadow: rgba(0, 0, 0, 0.45);
     --signal-ok: #6fbf95;
@@ -177,10 +182,15 @@ h1 em { color: inherit; font-style: normal; }
    gives the resting state the one bit of colour it needs. It carries no
    visible text (the state line below names the action), which is what lets
    the red be vivid: an icon only has to clear 3:1, not 4.5:1. */
-.record-button { width: 116px; height: 116px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--signal-rec); box-shadow: 0 8px 0 var(--signal-rec-deep), 0 16px 30px var(--signal-rec-shadow); transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
-.record-button:hover { transform: translateY(-2px); box-shadow: 0 10px 0 var(--signal-rec-deep), 0 20px 34px var(--signal-rec-shadow); }
-.record-button:active { transform: translateY(4px); box-shadow: 0 4px 0 var(--signal-rec-deep), 0 8px 16px var(--signal-rec-shadow); }
-.record-button:disabled { opacity: .8; transform: none; box-shadow: 0 6px 0 var(--signal-rec-deep); }
+/* Flat face with a gradient for depth, over a soft ambient shadow -- not the
+   hard offset lip, which read as a crescent stuck under the circle rather than
+   as the button having thickness.
+   The press still has to answer the tap, so it scales down and pulls its
+   shadow in tight, as though pressed into the surface. */
+.record-button { width: 116px; height: 116px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: linear-gradient(180deg, var(--signal-rec-lift) 0%, var(--signal-rec) 52%, var(--signal-rec-sink) 100%); box-shadow: 0 10px 22px var(--signal-rec-shadow); transition: transform .16s ease, box-shadow .16s ease, filter .16s ease; }
+.record-button:hover { transform: translateY(-2px); box-shadow: 0 16px 30px var(--signal-rec-shadow); }
+.record-button:active { transform: scale(.95); box-shadow: 0 5px 12px var(--signal-rec-shadow); }
+.record-button:disabled { opacity: .75; transform: none; box-shadow: 0 6px 14px var(--signal-rec-shadow); }
 .record-button__icon { width: 40px; height: 40px; }
 /* With no text on the dial, this line names the action -- so it carries more
    weight than it did when it was only a status caption. */
