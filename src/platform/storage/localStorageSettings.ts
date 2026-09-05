@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: Settings = {
   groqApiKey: "",
   cleanupEnabled: true,
   language: "",
+  hasCompletedFirstRun: false,
 };
 
 export class LocalStorageSettings implements SettingsRepository {
@@ -31,6 +32,7 @@ export class LocalStorageSettings implements SettingsRepository {
       groqApiKey: patch.groqApiKey ?? this.settings.groqApiKey,
       cleanupEnabled: patch.cleanupEnabled ?? this.settings.cleanupEnabled,
       language: patch.language ?? this.settings.language,
+      hasCompletedFirstRun: patch.hasCompletedFirstRun ?? this.settings.hasCompletedFirstRun,
     };
     this.persist();
     this.notify();
@@ -92,6 +94,10 @@ export class LocalStorageSettings implements SettingsRepository {
             ? value.cleanupEnabled
             : DEFAULT_SETTINGS.cleanupEnabled,
         language: typeof value.language === "string" ? value.language : "",
+        hasCompletedFirstRun:
+          typeof value.hasCompletedFirstRun === "boolean"
+            ? value.hasCompletedFirstRun
+            : DEFAULT_SETTINGS.hasCompletedFirstRun,
       };
     } catch {
       return null;

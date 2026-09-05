@@ -1,4 +1,4 @@
-import { Mic, Settings2 } from "lucide-react";
+import { ArrowLeft, Mic, Settings2 } from "lucide-react";
 import { useState } from "react";
 import type { AppServices } from "./app/types";
 import { RecorderScreen } from "./ui/RecorderScreen";
@@ -10,23 +10,36 @@ interface AppProps {
 
 export function App({ services }: AppProps) {
   const [screen, setScreen] = useState<"recorder" | "settings">("recorder");
+  const onSettings = screen === "settings";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${onSettings ? " app-shell--scroll" : ""}`}>
       <header className="app-header">
-        <button className="brand" type="button" onClick={() => setScreen("recorder")} aria-label="Go to recorder">
-          <span className="brand-mark"><Mic size={19} /></span>
-          <span>Rabble<span>Babble</span></span>
-        </button>
-        <div className="header-caption">ANDROID PWA <span>•</span> V1</div>
+        {onSettings ? (
+          <div className="header-left">
+            <button className="icon-button" type="button" onClick={() => setScreen("recorder")} aria-label="Back to recorder">
+              <ArrowLeft size={20} />
+            </button>
+            <span className="header-title">Settings</span>
+          </div>
+        ) : (
+          <span className="brand">
+            <span className="brand-mark"><Mic size={19} /></span>
+            <span>Rabble<span>Babble</span></span>
+          </span>
+        )}
+        {!onSettings && (
+          <button className="icon-button" type="button" onClick={() => setScreen("settings")} aria-label="Open settings">
+            <Settings2 size={20} />
+          </button>
+        )}
       </header>
 
-      {screen === "recorder" ? <RecorderScreen services={services} onOpenSettings={() => setScreen("settings")} /> : <SettingsScreen services={services} />}
-
-      <nav className="bottom-nav" aria-label="Main navigation">
-        <button className={screen === "recorder" ? "nav-item nav-item--active" : "nav-item"} type="button" onClick={() => setScreen("recorder")}><Mic size={19} /><span>Record</span></button>
-        <button className={screen === "settings" ? "nav-item nav-item--active" : "nav-item"} type="button" onClick={() => setScreen("settings")}><Settings2 size={19} /><span>Settings</span></button>
-      </nav>
+      {onSettings ? (
+        <SettingsScreen services={services} />
+      ) : (
+        <RecorderScreen services={services} onOpenSettings={() => setScreen("settings")} />
+      )}
     </div>
   );
 }

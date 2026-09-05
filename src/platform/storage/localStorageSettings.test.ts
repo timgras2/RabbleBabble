@@ -14,8 +14,8 @@ describe("LocalStorageSettings", () => {
 
     repository.update({ groqApiKey: "test-key", language: "en" });
     expect(JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)!)).toEqual({
+      ...DEFAULT_SETTINGS,
       groqApiKey: "test-key",
-      cleanupEnabled: true,
       language: "en",
     });
   });
@@ -25,7 +25,7 @@ describe("LocalStorageSettings", () => {
     repository.update({ groqApiKey: "test-key", cleanupEnabled: false, language: "de" });
     repository.clearApiKey();
 
-    expect(repository.get()).toEqual({ groqApiKey: "", cleanupEnabled: false, language: "de" });
+    expect(repository.get()).toEqual({ ...DEFAULT_SETTINGS, groqApiKey: "", cleanupEnabled: false, language: "de" });
   });
 
   it("notifies subscribers and supports reset", () => {
@@ -47,7 +47,7 @@ describe("LocalStorageSettings", () => {
 
     const repository = new LocalStorageSettings(localStorage);
 
-    expect(repository.get()).toEqual({ groqApiKey: "legacy-key", cleanupEnabled: false, language: "de" });
+    expect(repository.get()).toEqual({ ...DEFAULT_SETTINGS, groqApiKey: "legacy-key", cleanupEnabled: false, language: "de" });
     expect(JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)!)).toEqual(repository.get());
     expect(localStorage.getItem(LEGACY_SETTINGS_STORAGE_KEY)).toBeNull();
   });

@@ -1,9 +1,12 @@
 import type { AudioRecorder, AudioRecording, RecordingState } from "../platform/audio/types";
 import type { GroqClient } from "../platform/inference/types";
+import { DEFAULT_SETTINGS } from "../platform/storage/localStorageSettings";
 import type { Settings, SettingsRepository } from "../platform/storage/types";
 import { DictationFlowService } from "./dictationFlow";
 
-function settingsRepository(value: Settings): SettingsRepository {
+// Takes a patch so these cases stay pinned to the fields they actually exercise.
+function settingsRepository(patch: Partial<Settings>): SettingsRepository {
+  const value: Settings = { ...DEFAULT_SETTINGS, ...patch };
   return {
     get: () => value,
     update: (patch) => Object.assign(value, patch),

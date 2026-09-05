@@ -2,6 +2,7 @@ import { AlertCircle, Check, Clipboard, Info, Pencil, ShieldCheck } from "lucide
 import { useEffect, useState } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
+import { useSettings } from "../hooks/useSettings";
 import { AdapterError } from "../platform/errors";
 import { MAX_REWRITE_INSTRUCTION_LENGTH } from "../platform/inference/groqClient";
 import { RecordButton } from "./components/RecordButton";
@@ -13,6 +14,7 @@ interface RecorderScreenProps {
 
 export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps) {
   const dictation = useDictation(services);
+  const { settings, update } = useSettings(services);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
   const [rewriteOpen, setRewriteOpen] = useState(false);
@@ -73,14 +75,29 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
 
   const errorMessage = dictation.error ? messageForError(dictation.error) : null;
   const hasResult = Boolean(dictation.result);
+  // The intro explains the product to a first-time user; from the second visit
+  // on it is dead weight in front of the tool, so one finished run retires it.
+  const showIntro = !settings.hasCompletedFirstRun;
+
+  useEffect(() => {
+    if (hasResult && !settings.hasCompletedFirstRun) {
+      update({ hasCompletedFirstRun: true });
+    }
+  }, [hasResult, settings.hasCompletedFirstRun, update]);
 
   return (
     <main className="screen recorder-screen">
-      <section className="hero-panel">
-        <div className="eyebrow"><span className="eyebrow__dot" />Private by default</div>
-        <h1>Say it once.<br /><em>Keep the words.</em></h1>
-        <p className="hero-copy">Record a thought, get a clean transcript, and copy it wherever it belongs.</p>
-      </section>
+      <div className="transcript-zone" aria-live="polite">
+        {showIntro && !hasResult && (
+          <section className="hero-panel">
+            <h1>Say it once.<br /><em>Keep the words.</em></h1>
+            <p className="hero-copy">Record a thought, get a clean transcript, and copy it wherever it belongs.</p>
+          </section>
+        )}
+
+        {!showIntro && !hasResult && !errorMessage && (
+          <p className="transcript-placeholder">Your transcript will appear here.</p>
+        )}
 
       {hasResult && dictation.result && (
         <section className="result-card result-card--top" aria-label="Transcript">
@@ -121,40 +138,42 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
         </section>
       )}
 
-      <section className="recorder-card" aria-label="Recorder">
-        <RecordButton state={dictation.state} onStart={start} onStop={stop} />
-        {dictation.state === "recording" && (
-          <div className="recording-timer" aria-live="polite">
-            Recording {formatDuration(elapsedMs)} <span>/ 05:00</span>
+        {errorMessage && (
+          <div className="notice notice--error" role="alert">
+            <AlertCircle size={19} />
+            <div><strong>{errorMessage.title}</strong><span>{errorMessage.detail}</span></div>
+            {dictation.error?.code === "missing-api-key" || dictation.error?.code === "api-unauthorized" ? (
+              <button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button>
+            ) : null}
           </div>
         )}
-        {(dictation.state === "transcribing" || dictation.state === "cleaning" || dictation.state === "rewriting") && (
-          <button type="button" className="cancel-button" onClick={() => void dictation.cancel()}>
-            {dictation.state === "rewriting" ? "Cancel rewrite" : "Cancel request"}
-          </button>
-        )}
-        <div className="state-line" aria-live="polite">
-          {dictation.state === "idle" && "Ready when you are"}
-          {dictation.state === "recording" && <><span className="pulse-dot" />Listening...</>}
-          {dictation.state === "transcribing" && "Turning audio into text..."}
-          {dictation.state === "cleaning" && "Polishing your words..."}
-          {dictation.state === "rewriting" && "Applying your changes..."}
-          {dictation.state === "completed" && "Transcript ready"}
-          {dictation.state === "error" && "Something needs your attention"}
+      </div>
+
+      <section className="action-zone" aria-label="Recorder">
+        <RecordButton state={dictation.state} onStart={start} onStop={stop} />
+        <div className="action-zone__status">
+          {dictation.state === "recording" && (
+            <div className="recording-timer">
+              {formatDuration(elapsedMs)} <span>/ 05:00</span>
+            </div>
+          )}
+          <div className="state-line" aria-live="polite">
+            {dictation.state === "idle" && (showIntro ? "Tap to start recording" : "Ready when you are")}
+            {dictation.state === "recording" && <><span className="pulse-dot" />Listening...</>}
+            {dictation.state === "transcribing" && "Turning audio into text..."}
+            {dictation.state === "cleaning" && "Polishing your words..."}
+            {dictation.state === "rewriting" && "Applying your changes..."}
+            {dictation.state === "completed" && "Transcript ready"}
+            {dictation.state === "error" && "Something needs your attention"}
+          </div>
+          {(dictation.state === "transcribing" || dictation.state === "cleaning" || dictation.state === "rewriting") && (
+            <button type="button" className="cancel-button" onClick={() => void dictation.cancel()}>
+              {dictation.state === "rewriting" ? "Cancel rewrite" : "Cancel request"}
+            </button>
+          )}
         </div>
+        <div className="trust-line"><ShieldCheck size={15} /> Audio is sent when you stop. Nothing is saved as history.</div>
       </section>
-
-      {errorMessage && (
-        <div className="notice notice--error" role="alert">
-          <AlertCircle size={19} />
-          <div><strong>{errorMessage.title}</strong><span>{errorMessage.detail}</span></div>
-          {dictation.error?.code === "missing-api-key" || dictation.error?.code === "api-unauthorized" ? (
-            <button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button>
-          ) : null}
-        </div>
-      )}
-
-      <div className="trust-line"><ShieldCheck size={16} /> Audio is sent when you stop; text is sent when you apply a rewrite. Nothing is saved as history.</div>
     </main>
   );
 }

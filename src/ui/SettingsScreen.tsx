@@ -36,8 +36,6 @@ export function SettingsScreen({ services }: SettingsScreenProps) {
   return (
     <main className="screen settings-screen">
       <section className="settings-heading">
-        <div className="eyebrow"><KeyRound size={14} /> Device settings</div>
-        <h1>Your setup,<br /><em>kept local.</em></h1>
         <p>These settings stay on this device. Your key is used directly by your browser to reach Groq.</p>
       </section>
 
