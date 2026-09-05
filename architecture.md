@@ -19,6 +19,27 @@ Browser adapters
 Android Chrome / installed PWA       Groq Cloud
 ```
 
+## 1a. V2 Runtime Shape (service mode)
+
+```
+Android PWA  ──HTTPS, session cookie──┐
+                                      │  (same origin)
+                        Cloudflare Worker
+                          ├─ static assets (the PWA itself)
+                          ├─ /auth/*  magic link, sessions
+                          ├─ /v1/*    transcribe, cleanup, rewrite
+                          ├─ D1       users, sessions, counters
+                          └─ Groq API (server-side key)
+```
+
+One Worker serves both the app and the API. That is what keeps the session
+cookie first-party, removes CORS entirely, and lets the build-time CSP stay at
+`connect-src 'self'`. Audio and transcripts are never persisted: D1 holds an
+email address, a session hash, and numeric usage counters.
+
+The bring-your-own-key build keeps the V1 shape - browser straight to Groq -
+and is what GitHub Pages serves.
+
 ## 2. Directory Structure
 
 ```text
@@ -76,10 +97,19 @@ the GitHub Pages path `/RabbleBabble/`; local Android testing uses an HTTPS LAN 
 1. UI components do not call `navigator`, `fetch`, `localStorage`, or Clipboard APIs.
 2. `DictationFlow` coordinates adapters but does not access browser globals.
 3. `platform/` does not import UI components.
-4. `groqClient.ts` receives the API key; it does not read storage.
+4. `groqClient.ts` receives an API-key provider function from the composition root.
+   It must not import `SettingsRepository`, `localStorage`, or any other storage API.
+   `backendClient.ts` receives the `AuthSession` port and holds no credential at all:
+   the session lives in an HttpOnly cookie the page cannot read.
 5. API keys and transcript text must not be logged.
 6. There is no `window.electronAPI` fallback.
-7. There is no local inference or execution router in v1.
+7. There is no local inference or execution router.
+8. `src/shared/` is imported by both the browser and the Worker. It may contain only
+   types, unions, numeric constants and pure functions over primitives - no `Blob`,
+   `Request`, `FormData`, `fetch`, `localStorage` or `D1Database`. Enforced by lint.
+9. `worker/` may import from `src/shared/` and nothing else in `src/`. Enforced by lint.
+10. Only `src/app/mode.ts` reads the build-mode constants. Everything else branches on
+    the exported `SERVICE_MODE`, so the unused adapter is eliminated from each bundle.
 
 ## 4. Interface Contracts
 
@@ -245,9 +275,16 @@ textarea with `document.execCommand("copy")` when the modern API is unavailable 
 denied. Both attempts must originate from the Copy button's user gesture. Clipboard
 failure never deletes the visible result.
 
-### 4.5 Groq Inference
+### 4.5 Inference
 
 File: `src/platform/inference/types.ts`
+
+> **V2.** This port was `GroqClient` and carried an `apiKey` on every request.
+> It is now `InferenceClient`: no credential in the request shape, because
+> `BackendClient` has none to give. `ensureReady()` answers "would a request be
+> accepted right now?" and is awaited BEFORE the microphone opens, so a missing
+> key or a dead session costs the user no speech. Models, limits and prompts moved
+> to `src/shared/` so the Worker uses the same definitions.
 
 ```ts
 import type { AudioRecording } from "../audio/types";
