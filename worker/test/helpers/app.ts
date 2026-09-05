@@ -58,7 +58,10 @@ export function buildTestApp(overrides: Partial<Config> = {}): TestApp {
   dayOffset += 1;
   const clock = new TestClock(BASE_EPOCH + dayOffset * 86_400);
   const groqFetch = vi.fn<typeof fetch>();
-  const config: Config = { ...readConfig(env), ...overrides };
+  // appOrigin is pinned rather than inherited: it is a deployment detail,
+  // and letting it leak in here means pointing wrangler.jsonc at a real URL
+  // breaks every same-site assertion in the suite.
+  const config: Config = { ...readConfig(env), appOrigin: APP_ORIGIN, ...overrides };
 
   const deps: Deps = {
     config,
