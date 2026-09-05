@@ -1,4 +1,6 @@
 import { AdapterError } from "../errors";
+import { isRecord, RetryingHttp } from "../http/httpRetry";
+import type { HttpErrorMapper } from "../http/httpRetry";
 import { MAX_AUDIO_BYTES, MAX_INSTRUCTION_CHARS, MAX_TEXT_CHARS } from "../../shared/limits";
 import { CLEANUP_MODEL, TRANSCRIPTION_MODEL } from "../../shared/models";
 import { buildCleanupMessages, buildRewriteMessages } from "../../shared/prompts";
@@ -16,20 +18,30 @@ export { CLEANUP_MODEL, TRANSCRIPTION_MODEL };
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
 const DEFAULT_CHAT_TIMEOUT_MS = 30_000;
 const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 120_000;
-const RETRY_BACKOFF_MS = 1_000;
-const MAX_ATTEMPTS = 3;
 
-class RequestTimeoutError extends Error {}
+/**
+ * How Groq's failures read to a bring-your-own-key user. The Worker gets its
+ * own mapper: a rejected API key and an expired session must not share wording.
+ */
+const groqErrors: HttpErrorMapper = {
+  fromResponse: (response) => Promise.resolve(statusError(response.status)),
+  unreachable: (cause) =>
+    new AdapterError("Could not reach Groq.", { code: "api-server", retryable: true, cause }),
+  timedOut: (cause) =>
+    new AdapterError("Groq request timed out.", { code: "api-timeout", retryable: true, cause }),
+  invalidBody: (cause) =>
+    new AdapterError("Groq returned an invalid response.", { code: "api-invalid", cause }),
+};
 
 export class GroqHttpClient implements GroqClient {
   private readonly baseUrl: string;
-  private readonly fetcher: typeof fetch;
+  private readonly http: RetryingHttp;
   private readonly chatTimeoutMs: number;
   private readonly transcriptionTimeoutMs: number;
 
   constructor(options: GroqClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
-    this.fetcher = options.fetcher ?? defaultFetcher();
+    this.http = new RetryingHttp({ fetcher: options.fetcher, errors: groqErrors });
     this.chatTimeoutMs = options.timeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
     this.transcriptionTimeoutMs =
       options.transcriptionTimeoutMs ?? DEFAULT_TRANSCRIPTION_TIMEOUT_MS;
@@ -55,13 +67,13 @@ export class GroqHttpClient implements GroqClient {
       form.append("language", request.language.trim());
     }
 
-    const response = await this.request(`${this.baseUrl}/audio/transcriptions`, {
+    const response = await this.http.send(`${this.baseUrl}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${request.apiKey}` },
       body: form,
       signal: request.signal,
     }, { timeoutMs: this.transcriptionTimeoutMs, retryTimeouts: false });
-    const payload = await this.readJson(response);
+    const payload = await this.http.readJson(response);
     const text = isRecord(payload) && typeof payload.text === "string" ? payload.text : undefined;
     if (typeof text !== "string" || !text.trim()) {
       throw new AdapterError("Groq returned an empty transcript.", {
@@ -83,7 +95,7 @@ export class GroqHttpClient implements GroqClient {
       });
     }
 
-    const response = await this.request(`${this.baseUrl}/chat/completions`, {
+    const response = await this.http.send(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${request.apiKey}`,
@@ -95,7 +107,7 @@ export class GroqHttpClient implements GroqClient {
       }),
       signal: request.signal,
     }, { timeoutMs: this.chatTimeoutMs });
-    const payload = await this.readJson(response);
+    const payload = await this.http.readJson(response);
     const choices = isRecord(payload) && Array.isArray(payload.choices) ? payload.choices : [];
     const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
     const message = firstChoice && isRecord(firstChoice.message) ? firstChoice.message : undefined;
@@ -134,7 +146,7 @@ export class GroqHttpClient implements GroqClient {
       });
     }
 
-    const response = await this.request(`${this.baseUrl}/chat/completions`, {
+    const response = await this.http.send(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${request.apiKey}`,
@@ -146,7 +158,7 @@ export class GroqHttpClient implements GroqClient {
       }),
       signal: request.signal,
     }, { timeoutMs: this.chatTimeoutMs });
-    const payload = await this.readJson(response);
+    const payload = await this.http.readJson(response);
     const choices = isRecord(payload) && Array.isArray(payload.choices) ? payload.choices : [];
     const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
     const message = firstChoice && isRecord(firstChoice.message) ? firstChoice.message : undefined;
@@ -157,145 +169,6 @@ export class GroqHttpClient implements GroqClient {
       });
     }
     return { text };
-  }
-
-  private async request(
-    url: string,
-    init: RequestInit & { signal?: AbortSignal },
-    options: { readonly timeoutMs: number; readonly retryTimeouts?: boolean },
-  ): Promise<Response> {
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      throw new AdapterError("The device is offline.", { code: "offline", retryable: true });
-    }
-
-    let lastNetworkError: unknown;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      try {
-        const response = await this.fetchAttempt(url, init, options.timeoutMs);
-        if (response.status >= 500 && response.status <= 599) {
-          if (attempt < MAX_ATTEMPTS - 1) {
-            await this.waitBeforeRetry(attempt, init.signal);
-            continue;
-          }
-          throw new AdapterError("Groq is temporarily unavailable.", {
-            code: "api-server",
-            retryable: true,
-          });
-        }
-        if (!response.ok) {
-          throw statusError(response.status);
-        }
-        return response;
-      } catch (error) {
-        if (init.signal?.aborted || isAbortError(error)) {
-          throw new AdapterError("The request was cancelled.", { code: "cancelled", cause: error });
-        }
-        if (error instanceof AdapterError) {
-          throw error;
-        }
-        if (error instanceof RequestTimeoutError) {
-          if (options.retryTimeouts === false || attempt === MAX_ATTEMPTS - 1) {
-            throw new AdapterError("Groq request timed out.", {
-              code: "api-timeout",
-              retryable: true,
-              cause: error,
-            });
-          }
-          await this.waitBeforeRetry(attempt, init.signal);
-          continue;
-        }
-        lastNetworkError = error;
-        if (attempt === MAX_ATTEMPTS - 1) {
-          throw new AdapterError("Could not reach Groq.", {
-            code: "api-server",
-            retryable: true,
-            cause: lastNetworkError,
-          });
-        }
-        await this.waitBeforeRetry(attempt, init.signal);
-      }
-    }
-    throw new AdapterError("Could not reach Groq.", {
-      code: "api-server",
-      retryable: true,
-      cause: lastNetworkError,
-    });
-  }
-
-  private async fetchAttempt(
-    url: string,
-    init: RequestInit & { signal?: AbortSignal },
-    timeoutMs: number,
-  ): Promise<Response> {
-    const controller = new AbortController();
-    let timedOut = false;
-    const abortFromCaller = () => controller.abort();
-    if (init.signal) {
-      if (init.signal.aborted) {
-        controller.abort();
-      } else {
-        init.signal.addEventListener("abort", abortFromCaller, { once: true });
-      }
-    }
-    let rejectTimeout!: (reason?: unknown) => void;
-    const timeout = new Promise<Response>((_, reject) => {
-      rejectTimeout = reject;
-    });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-      rejectTimeout(new RequestTimeoutError());
-    }, timeoutMs);
-
-    try {
-      return await Promise.race([
-        this.fetcher(url, { ...init, signal: controller.signal }),
-        timeout,
-      ]);
-    } catch (error) {
-      if (timedOut) {
-        throw new RequestTimeoutError();
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-      init.signal?.removeEventListener("abort", abortFromCaller);
-    }
-  }
-
-  private waitBeforeRetry(attempt: number, signal?: AbortSignal): Promise<void> {
-    const delayMs = RETRY_BACKOFF_MS * 2 ** attempt;
-    return new Promise<void>((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new DOMException("The request was cancelled.", "AbortError"));
-        return;
-      }
-
-      const onAbort = () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-        signal?.removeEventListener("abort", onAbort);
-        reject(new DOMException("The request was cancelled.", "AbortError"));
-      };
-
-      const timer = setTimeout(() => {
-        signal?.removeEventListener("abort", onAbort);
-        resolve();
-      }, delayMs);
-      signal?.addEventListener("abort", onAbort, { once: true });
-    });
-  }
-
-  private async readJson(response: Response): Promise<unknown> {
-    try {
-      return await response.json();
-    } catch (error) {
-      throw new AdapterError("Groq returned an invalid response.", {
-        code: "api-invalid",
-        cause: error,
-      });
-    }
   }
 
   private validateKey(apiKey: string): void {
@@ -330,19 +203,4 @@ function statusError(status: number): AdapterError {
     code: "api-server",
     retryable: true,
   });
-}
-
-function isAbortError(error: unknown): boolean {
-  return isRecord(error) && error.name === "AbortError";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function defaultFetcher(): typeof fetch {
-  if (typeof window !== "undefined") {
-    return window.fetch.bind(window);
-  }
-  return fetch;
 }
