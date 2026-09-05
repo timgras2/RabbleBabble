@@ -148,7 +148,11 @@ button:disabled { cursor: not-allowed; }
 .header-left { display: flex; align-items: center; gap: 6px; }
 .header-title { color: var(--ink); font-size: 16px; font-weight: 800; letter-spacing: -0.02em; }
 .brand { border: 0; background: transparent; display: inline-flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--ink); font-size: 16px; font-weight: 800; letter-spacing: -0.03em; }
-.brand > span:last-child > span { color: var(--ink); }
+/* "Babble" picks up the dial's red. --signal-rec-ink rather than the dial's own
+   fill because this is 16px bold text, which needs 4.5:1 (the fill manages only
+   3.60 on the light ground); the token is the deep end of the same red, and
+   lightens in dark mode where the deep end would fail instead. */
+.brand > span:last-child > span { color: var(--signal-rec-ink); }
 .brand-mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: var(--on-dark); background: var(--ink); }
 .icon-button { width: 44px; height: 44px; margin: 0 -10px 0 0; border: 0; border-radius: 12px; display: grid; place-items: center; color: var(--ink-4); background: transparent; }
 .header-left .icon-button { margin: 0 0 0 -10px; }
@@ -161,21 +165,26 @@ button:disabled { cursor: not-allowed; }
    from the top instead of being clipped -- flex centring would hide the head
    of an overflowing transcript, and flex children would shrink rather than
    scroll. */
-.transcript-zone { flex: 0 1 auto; min-height: 0; display: grid; align-content: safe center; gap: 14px; overflow-y: auto; padding: 6vh 0 4px; }
+/* 0.85 against the action zone's 1, not an even split: the action side carries
+   more content than the hero above it, so an even split leaves the group
+   sitting visibly below centre. */
+.transcript-zone { flex: 0.85 1 0; min-height: 0; display: grid; align-content: safe end; gap: 14px; overflow-y: auto; padding: 4px 0 20px; }
 .transcript-zone > * { min-height: 0; }
 .transcript-placeholder { margin: 0; color: var(--muted-3); font-family: Georgia, "Times New Roman", serif; font-size: 18px; text-align: center; }
 /* Zone 2: the primary action, anchored where a thumb rests. */
-/* `margin-top: auto` holds the dial in the lower third whether the transcript
-   is empty or overflowing, so it never moves; the bottom padding keeps air
-   under it instead of pinning it to the edge. */
-.action-zone { flex: 0 0 auto; margin-top: auto; padding: 0 0 6vh; display: grid; justify-items: center; gap: 16px; }
+/* Two equal zones split at the vertical midline: the transcript grows upward
+   from that line and the dial sits on it. So the dial reads as centred and
+   still never moves, whether the transcript is empty or overflowing. */
+.action-zone { flex: 1 1 0; min-height: 0; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .action-zone__status { display: grid; justify-items: center; gap: 6px; min-height: 40px; }
+/* Reserved so the dial does not jump down when the timer appears -- it must
+   not move at the moment you tap it. */
+.action-zone__timer { min-height: 22px; display: grid; place-items: center; }
 .hero-panel { padding: 8px 0 4px; text-align: center; }
 /* Sans for all chrome, serif reserved for the transcript. That contrast --
    quiet sans UI around warm serif content -- is the typographic identity;
    a serif display headline was doing landing-page work. */
 h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; }
-h1 em { color: inherit; font-style: normal; }
 .hero-copy, .settings-heading p { max-width: 430px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 .hero-copy { margin-inline: auto; }
 /* A dial, and red at rest -- that is simply what a record button is, and it
@@ -254,7 +263,7 @@ h1 em { color: inherit; font-style: normal; }
 .inline-warning, .copy-status { margin: 0 0 15px; display: flex; align-items: center; gap: 6px; color: var(--warn); font-size: 12px; line-height: 1.4; }
 .copy-status { margin: 11px 0 0; color: var(--signal-ok); justify-content: center; }
 .copy-status--error { color: var(--danger); }
-.trust-line { padding: 4px 8px 0; display: flex; justify-content: center; align-items: center; gap: 7px; color: var(--muted-3); font-size: 11px; text-align: center; }
+.trust-line { margin-top: auto; padding: 4px 8px 0; display: flex; justify-content: center; align-items: center; gap: 7px; color: var(--muted-3); font-size: 11px; text-align: center; }
 
 .settings-heading { padding: 4px 0 24px; }
 .settings-form { padding: 27px; border: 1px solid var(--border-strong); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow-card); }

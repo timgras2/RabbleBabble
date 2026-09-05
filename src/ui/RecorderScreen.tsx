@@ -122,7 +122,7 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
       <div className="transcript-zone" aria-live="polite">
         {showIntro && !hasResult && (
           <section className="hero-panel">
-            <h1>Say it once.<br /><em>Keep the words.</em></h1>
+            <h1>Why type<br />when you can talk?</h1>
             <p className="hero-copy">Record a thought, get a clean transcript, and copy it wherever it belongs.</p>
           </section>
         )}
@@ -189,11 +189,6 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
       </div>
 
       <section className="action-zone" aria-label="Recorder">
-        {dictation.state === "recording" && (
-          <div className="recording-timer">
-            {formatDuration(elapsedMs)} <span>/ 05:00</span>
-          </div>
-        )}
         <RecordButton
           state={dictation.state}
           onStart={start}
@@ -201,6 +196,15 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
           recordingIndicator={<LevelMeter recorder={services.recorder} active />}
         />
         <div className="action-zone__status">
+          {/* Below the dial, and always rendered: keeping the timer above it
+              pushed the dial down at the moment you tapped it. */}
+          <div className="action-zone__timer">
+            {dictation.state === "recording" && (
+              <div className="recording-timer">
+                {formatDuration(elapsedMs)} <span>/ 05:00</span>
+              </div>
+            )}
+          </div>
           {showProgress && <div className="progress-bar" aria-hidden="true"><span /></div>}
           <div className="state-line" aria-live="polite">
             {dictation.state === "idle" && "Tap to start recording"}
