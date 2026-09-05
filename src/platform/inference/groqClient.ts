@@ -12,7 +12,9 @@ export const TRANSCRIPTION_MODEL = "whisper-large-v3-turbo";
 export const CLEANUP_MODEL = "openai/gpt-oss-20b";
 
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_CHAT_TIMEOUT_MS = 30_000;
+const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 120_000;
+const RETRY_BACKOFF_MS = 1_000;
 const MAX_AUDIO_BYTES = 26_214_400;
 const MAX_ATTEMPTS = 3;
 export const MAX_REWRITE_TEXT_LENGTH = 20_000;
@@ -23,12 +25,15 @@ class RequestTimeoutError extends Error {}
 export class GroqHttpClient implements GroqClient {
   private readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
-  private readonly timeoutMs: number;
+  private readonly chatTimeoutMs: number;
+  private readonly transcriptionTimeoutMs: number;
 
   constructor(options: GroqClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.fetcher = options.fetcher ?? defaultFetcher();
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.chatTimeoutMs = options.timeoutMs ?? DEFAULT_CHAT_TIMEOUT_MS;
+    this.transcriptionTimeoutMs =
+      options.transcriptionTimeoutMs ?? DEFAULT_TRANSCRIPTION_TIMEOUT_MS;
   }
 
   async transcribe(request: {
@@ -56,7 +61,7 @@ export class GroqHttpClient implements GroqClient {
       headers: { Authorization: `Bearer ${request.apiKey}` },
       body: form,
       signal: request.signal,
-    });
+    }, { timeoutMs: this.transcriptionTimeoutMs, retryTimeouts: false });
     const payload = await this.readJson(response);
     const text = isRecord(payload) && typeof payload.text === "string" ? payload.text : undefined;
     if (typeof text !== "string" || !text.trim()) {
@@ -100,7 +105,7 @@ export class GroqHttpClient implements GroqClient {
         ],
       }),
       signal: request.signal,
-    });
+    }, { timeoutMs: this.chatTimeoutMs });
     const payload = await this.readJson(response);
     const choices = isRecord(payload) && Array.isArray(payload.choices) ? payload.choices : [];
     const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
@@ -164,7 +169,7 @@ export class GroqHttpClient implements GroqClient {
         ],
       }),
       signal: request.signal,
-    });
+    }, { timeoutMs: this.chatTimeoutMs });
     const payload = await this.readJson(response);
     const choices = isRecord(payload) && Array.isArray(payload.choices) ? payload.choices : [];
     const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
@@ -181,6 +186,7 @@ export class GroqHttpClient implements GroqClient {
   private async request(
     url: string,
     init: RequestInit & { signal?: AbortSignal },
+    options: { readonly timeoutMs: number; readonly retryTimeouts?: boolean },
   ): Promise<Response> {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       throw new AdapterError("The device is offline.", { code: "offline", retryable: true });
@@ -189,9 +195,10 @@ export class GroqHttpClient implements GroqClient {
     let lastNetworkError: unknown;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       try {
-        const response = await this.fetchAttempt(url, init);
+        const response = await this.fetchAttempt(url, init, options.timeoutMs);
         if (response.status >= 500 && response.status <= 599) {
           if (attempt < MAX_ATTEMPTS - 1) {
+            await this.waitBeforeRetry(attempt, init.signal);
             continue;
           }
           throw new AdapterError("Groq is temporarily unavailable.", {
@@ -211,13 +218,14 @@ export class GroqHttpClient implements GroqClient {
           throw error;
         }
         if (error instanceof RequestTimeoutError) {
-          if (attempt === MAX_ATTEMPTS - 1) {
+          if (options.retryTimeouts === false || attempt === MAX_ATTEMPTS - 1) {
             throw new AdapterError("Groq request timed out.", {
               code: "api-timeout",
               retryable: true,
               cause: error,
             });
           }
+          await this.waitBeforeRetry(attempt, init.signal);
           continue;
         }
         lastNetworkError = error;
@@ -228,6 +236,7 @@ export class GroqHttpClient implements GroqClient {
             cause: lastNetworkError,
           });
         }
+        await this.waitBeforeRetry(attempt, init.signal);
       }
     }
     throw new AdapterError("Could not reach Groq.", {
@@ -240,6 +249,7 @@ export class GroqHttpClient implements GroqClient {
   private async fetchAttempt(
     url: string,
     init: RequestInit & { signal?: AbortSignal },
+    timeoutMs: number,
   ): Promise<Response> {
     const controller = new AbortController();
     let timedOut = false;
@@ -251,14 +261,15 @@ export class GroqHttpClient implements GroqClient {
         init.signal.addEventListener("abort", abortFromCaller, { once: true });
       }
     }
-    let timer!: ReturnType<typeof setTimeout>;
+    let rejectTimeout!: (reason?: unknown) => void;
     const timeout = new Promise<Response>((_, reject) => {
-      timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-        reject(new RequestTimeoutError());
-      }, this.timeoutMs);
+      rejectTimeout = reject;
     });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      rejectTimeout(new RequestTimeoutError());
+    }, timeoutMs);
 
     try {
       return await Promise.race([
@@ -274,6 +285,30 @@ export class GroqHttpClient implements GroqClient {
       clearTimeout(timer);
       init.signal?.removeEventListener("abort", abortFromCaller);
     }
+  }
+
+  private waitBeforeRetry(attempt: number, signal?: AbortSignal): Promise<void> {
+    const delayMs = RETRY_BACKOFF_MS * 2 ** attempt;
+    return new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException("The request was cancelled.", "AbortError"));
+        return;
+      }
+
+      const onAbort = () => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        signal?.removeEventListener("abort", onAbort);
+        reject(new DOMException("The request was cancelled.", "AbortError"));
+      };
+
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, delayMs);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   private async readJson(response: Response): Promise<unknown> {

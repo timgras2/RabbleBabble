@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import type { AppServices } from "../app/types";
 import { AdapterError } from "../platform/errors";
-import type { DictationState } from "../services/types";
+import type { DictationResult, DictationState } from "../services/types";
 
 export function useDictation(services: AppServices) {
   const flow = services.dictation;
@@ -9,6 +9,11 @@ export function useDictation(services: AppServices) {
     (listener) => flow.subscribe(listener),
     () => flow.state,
     (): DictationState => "idle",
+  );
+  const result = useSyncExternalStore(
+    (listener) => flow.subscribe(listener),
+    () => flow.result,
+    (): DictationResult | null => null,
   );
   const [error, setError] = useState<AdapterError | null>(null);
 
@@ -49,7 +54,7 @@ export function useDictation(services: AppServices) {
     setError(null);
   };
 
-  return { state, result: flow.result, error, start, stop, rewrite, cancel };
+  return { state, result, error, start, stop, rewrite, cancel };
 }
 
 function asAdapterError(error: unknown): AdapterError {

@@ -197,8 +197,11 @@ export interface SettingsRepository {
 The v1 implementation is synchronous `localStorage`. Storage key:
 
 ```text
-openwhispr.settings
+rabblebabble.settings
 ```
+
+On first read, if the RabbleBabble key is absent and `openwhispr.settings` exists, the
+repository copies the valid legacy value to the new key and removes the legacy entry.
 
 The stored value is one JSON `Settings` object. Defaults:
 
@@ -253,6 +256,7 @@ export interface GroqClientOptions {
   readonly baseUrl?: string;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
+  readonly transcriptionTimeoutMs?: number;
 }
 
 export interface GroqTranscriptionResponse {
@@ -302,9 +306,11 @@ It receives the current API key on each request, sends it as a Bearer token, use
 multipart form data for transcription, and uses OpenAI-compatible chat messages for
 cleanup. It derives a `.webm` or `.mp4` filename from the recording MIME type and sends
 the native recording without WAV conversion. It omits the `language` field when the
-setting is empty. It rejects audio over 25 MB before upload. It retries network and 5xx
-errors up to three attempts, but never retries an aborted request. It does not retry 400,
-401, 403, 404, or 429 responses.
+setting is empty. It rejects audio over 25 MB before upload. Transcription uses a
+120-second default timeout; cleanup and rewrite use a 30-second default timeout. Network
+and 5xx errors retry up to three attempts with 1-second then 2-second exponential backoff.
+Transcription timeouts do not automatically re-upload the recording. It never retries an
+aborted request and does not retry 400, 401, 403, 404, or 429 responses.
 
 The cleanup prompt is:
 

@@ -4,6 +4,7 @@ export interface GroqClientOptions {
   readonly baseUrl?: string;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
+  readonly transcriptionTimeoutMs?: number;
 }
 
 export interface GroqTranscriptionResponse {

@@ -85,15 +85,22 @@ describe("GroqHttpClient", () => {
   });
 
   it("retries server failures up to three attempts", async () => {
-    const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse({}, 500))
-      .mockResolvedValueOnce(jsonResponse({}, 502))
-      .mockResolvedValueOnce(jsonResponse({ text: "recovered" }));
-    const client = new GroqHttpClient({ fetcher });
-    const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({}, 500))
+        .mockResolvedValueOnce(jsonResponse({}, 502))
+        .mockResolvedValueOnce(jsonResponse({ text: "recovered" }));
+      const client = new GroqHttpClient({ fetcher });
+      const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
+      const request = client.transcribe({ apiKey: "secret", audio });
 
-    await expect(client.transcribe({ apiKey: "secret", audio })).resolves.toEqual({ text: "recovered" });
-    expect(fetcher).toHaveBeenCalledTimes(3);
+      await vi.runAllTimersAsync();
+      await expect(request).resolves.toEqual({ text: "recovered" });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects oversized audio before calling fetch", async () => {
@@ -108,12 +115,42 @@ describe("GroqHttpClient", () => {
   it("times out a fetcher that does not resolve", async () => {
     vi.useFakeTimers();
     try {
-      const fetcher = vi.fn<typeof fetch>().mockReturnValue(new Promise<Response>(() => undefined));
-      const client = new GroqHttpClient({ fetcher, timeoutMs: 10 });
+      const fetcher = vi.fn<typeof fetch>((_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("cancelled", "AbortError")),
+          { once: true },
+        );
+      }));
+      const client = new GroqHttpClient({ fetcher, transcriptionTimeoutMs: 10 });
       const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
       const request = client.transcribe({ apiKey: "secret", audio });
       const result = expect(request).rejects.toMatchObject({ code: "api-timeout" });
-      await vi.advanceTimersByTimeAsync(31);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(11);
+      await result;
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("backs off between retryable chat timeouts", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn<typeof fetch>((_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("cancelled", "AbortError")),
+          { once: true },
+        );
+      }));
+      const client = new GroqHttpClient({ fetcher, timeoutMs: 10 });
+      const request = client.cleanup({ apiKey: "secret", text: "hello" });
+
+      await Promise.resolve();
+      const result = expect(request).rejects.toMatchObject({ code: "api-timeout" });
+      await vi.runAllTimersAsync();
       await result;
       expect(fetcher).toHaveBeenCalledTimes(3);
     } finally {

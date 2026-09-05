@@ -1,7 +1,8 @@
 import type { Unsubscribe } from "../types";
 import type { Settings, SettingsPatch, SettingsRepository } from "./types";
 
-export const SETTINGS_STORAGE_KEY = "openwhispr.settings";
+export const SETTINGS_STORAGE_KEY = "rabblebabble.settings";
+export const LEGACY_SETTINGS_STORAGE_KEY = "openwhispr.settings";
 
 export const DEFAULT_SETTINGS: Settings = {
   groqApiKey: "",
@@ -55,12 +56,33 @@ export class LocalStorageSettings implements SettingsRepository {
   private read(): Settings {
     try {
       const raw = this.storage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) {
+      if (raw !== null) {
+        return this.parse(raw) ?? { ...DEFAULT_SETTINGS };
+      }
+
+      const legacyRaw = this.storage.getItem(LEGACY_SETTINGS_STORAGE_KEY);
+      if (legacyRaw === null) {
         return { ...DEFAULT_SETTINGS };
       }
+
+      const migrated = this.parse(legacyRaw);
+      if (!migrated) {
+        return { ...DEFAULT_SETTINGS };
+      }
+
+      this.storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+      this.storage.removeItem(LEGACY_SETTINGS_STORAGE_KEY);
+      return migrated;
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+
+  private parse(raw: string): Settings | null {
+    try {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") {
-        return { ...DEFAULT_SETTINGS };
+        return null;
       }
       const value = parsed as Partial<Settings>;
       return {
@@ -72,7 +94,7 @@ export class LocalStorageSettings implements SettingsRepository {
         language: typeof value.language === "string" ? value.language : "",
       };
     } catch {
-      return { ...DEFAULT_SETTINGS };
+      return null;
     }
   }
 

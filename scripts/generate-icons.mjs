@@ -7,17 +7,19 @@ const palette = {
   foreground: [255, 250, 241, 255],
 };
 
-function pngFor(size) {
+function pngFor(size, maskable = false) {
   const pixels = Buffer.alloc((size * 4 + 1) * size);
   const scale = size / 512;
   for (let y = 0; y < size; y += 1) {
     pixels[y * (size * 4 + 1)] = 0;
     for (let x = 0; x < size; x += 1) {
-      const px = x / scale;
-      const py = y / scale;
+      const sourceX = x / scale;
+      const sourceY = y / scale;
+      const px = maskable ? 256 + (sourceX - 256) / 0.78 : sourceX;
+      const py = maskable ? 256 + (sourceY - 256) / 0.78 : sourceY;
       let color = palette.background;
       const corner = 116;
-      const insideRound = px >= corner && px <= 512 - corner && py >= 0 && py <= 512 ||
+      const insideRound = maskable || px >= corner && px <= 512 - corner && py >= 0 && py <= 512 ||
         px >= 0 && px <= 512 && py >= corner && py <= 512 - corner ||
         ((px - corner) ** 2 + (py - corner) ** 2 <= corner ** 2) ||
         ((px - (512 - corner)) ** 2 + (py - corner) ** 2 <= corner ** 2) ||
@@ -65,3 +67,5 @@ function crc32(buffer) {
 mkdirSync("src/public/icons", { recursive: true });
 writeFileSync("src/public/icons/icon-192.png", pngFor(192));
 writeFileSync("src/public/icons/icon-512.png", pngFor(512));
+writeFileSync("src/public/icons/icon-192-maskable.png", pngFor(192, true));
+writeFileSync("src/public/icons/icon-512-maskable.png", pngFor(512, true));

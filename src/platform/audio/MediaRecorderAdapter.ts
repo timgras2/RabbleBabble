@@ -20,6 +20,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
   private mediaRecorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private chunks: Blob[] = [];
+  private recordedBytes = 0;
   private mimeType = "";
   private startedAt = 0;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,6 +72,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
     }
 
     this.chunks = [];
+    this.recordedBytes = 0;
     this.cancelled = false;
     this.limitError = null;
     this.autoStopped = false;
@@ -78,7 +80,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.bindRecorderEvents();
     this.setState("recording");
     try {
-      this.mediaRecorder.start();
+      this.mediaRecorder.start(10_000);
     } catch (error) {
       this.failStart();
       throw new AdapterError("The browser could not start recording.", {
@@ -166,6 +168,13 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         this.chunks.push(event.data);
+        this.recordedBytes += event.data.size;
+        if (this.recordedBytes > this.options.maxBytes && !this.limitError) {
+          this.limitError = new AdapterError("Recording exceeded the 25 MB limit.", {
+            code: "recording-too-large",
+          });
+          this.finishStop();
+        }
       }
     };
     this.mediaRecorder.onstop = () => this.completeStop();
@@ -304,6 +313,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
     }
     this.mediaRecorder = null;
     this.chunks = [];
+    this.recordedBytes = 0;
   }
 
   private setState(state: RecordingState): void {

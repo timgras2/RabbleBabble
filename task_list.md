@@ -72,9 +72,10 @@
 - [x] **V1-11 — Implement localStorage settings**
   - Files: `src/platform/storage/localStorageSettings.ts`
   - Implement `SettingsRepository` from §4.3 using one JSON value at
-    `openwhispr.settings`. Include defaults, `clearApiKey`, and subscription
-    notifications. Do not store a cleanup model; v1 uses the fixed model in the Groq
-    client. Never log `groqApiKey`.
+    `rabblebabble.settings`. Migrate a valid `openwhispr.settings` value once when the
+    new key is absent. Include defaults, `clearApiKey`, and subscription notifications.
+    Do not store a cleanup model; v1 uses the fixed model in the Groq client. Never log
+    `groqApiKey`.
 
 - [x] **V1-12 — Implement browser clipboard**
   - Files: `src/platform/clipboard/browserClipboard.ts`

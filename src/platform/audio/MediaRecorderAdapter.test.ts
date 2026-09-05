@@ -2,22 +2,32 @@ import { MediaRecorderAdapter } from "./MediaRecorderAdapter";
 
 class FakeMediaRecorder {
   static isTypeSupported = () => true;
+  static lastInstance: FakeMediaRecorder | null = null;
   state: RecordingState = "inactive";
   mimeType = "audio/webm;codecs=opus";
+  startTimeslice: number | undefined;
   ondataavailable: ((event: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
   onerror: (() => void) | null = null;
 
   constructor(_stream: MediaStream, options?: { mimeType?: string }) {
     this.mimeType = options?.mimeType ?? this.mimeType;
+    FakeMediaRecorder.lastInstance = this;
   }
 
-  start() { this.state = "recording"; }
+  start(timeslice?: number) {
+    this.startTimeslice = timeslice;
+    this.state = "recording";
+  }
 
   stop() {
     this.state = "inactive";
     this.ondataavailable?.({ data: new Blob(["recorded audio"], { type: this.mimeType }) });
     this.onstop?.();
+  }
+
+  emitData(data: Blob) {
+    this.ondataavailable?.({ data });
   }
 }
 
@@ -48,6 +58,7 @@ describe("MediaRecorderAdapter", () => {
     await adapter.start();
     const recording = await adapter.stop();
 
+    expect(FakeMediaRecorder.lastInstance?.startTimeslice).toBe(10_000);
     expect(recording.mimeType).toContain("webm");
     expect(recording.blob.size).toBeGreaterThan(0);
     expect(states).toEqual(["recording", "stopping", "idle"]);
@@ -100,5 +111,16 @@ describe("MediaRecorderAdapter", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("stops when a timeslice pushes the recording over the byte limit", async () => {
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    installMedia(stream);
+    const adapter = new MediaRecorderAdapter({ maxBytes: 1 });
+
+    await adapter.start();
+    FakeMediaRecorder.lastInstance?.emitData(new Blob(["oversized chunk"]));
+
+    await expect(adapter.stop()).rejects.toMatchObject({ code: "recording-too-large" });
   });
 });

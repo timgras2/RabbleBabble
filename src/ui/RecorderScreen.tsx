@@ -1,5 +1,5 @@
 import { AlertCircle, Check, Clipboard, Info, Pencil, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
 import { AdapterError } from "../platform/errors";
@@ -13,14 +13,26 @@ interface RecorderScreenProps {
 
 export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps) {
   const dictation = useDictation(services);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
   const [rewriteOpen, setRewriteOpen] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
+
+  useEffect(() => {
+    if (dictation.state !== "recording") {
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = setInterval(() => setElapsedMs(Date.now() - startedAt), 1_000);
+    return () => clearInterval(timer);
+  }, [dictation.state]);
 
   const start = async () => {
     setCopyStatus(null);
     setRewriteOpen(false);
     setRewriteInstruction("");
+    setElapsedMs(0);
     try {
       await dictation.start();
     } catch (error) {
@@ -111,6 +123,11 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
 
       <section className="recorder-card" aria-label="Recorder">
         <RecordButton state={dictation.state} onStart={start} onStop={stop} />
+        {dictation.state === "recording" && (
+          <div className="recording-timer" aria-live="polite">
+            Recording {formatDuration(elapsedMs)} <span>/ 05:00</span>
+          </div>
+        )}
         {(dictation.state === "transcribing" || dictation.state === "cleaning" || dictation.state === "rewriting") && (
           <button type="button" className="cancel-button" onClick={() => void dictation.cancel()}>
             {dictation.state === "rewriting" ? "Cancel rewrite" : "Cancel request"}
@@ -140,6 +157,13 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
       <div className="trust-line"><ShieldCheck size={16} /> Audio is sent when you stop; text is sent when you apply a rewrite. Nothing is saved as history.</div>
     </main>
   );
+}
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.floor(durationMs / 1_000);
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
 function useStateCopyStatus() {
