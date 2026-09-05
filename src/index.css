@@ -129,7 +129,13 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }
+/* dvh, not vh: vh is the "large viewport" (as if Android's collapsible URL
+   bar were hidden), which resolves taller than the shell's own 100dvh while
+   the bar is showing on a fresh load -- leaving body taller than .app-shell
+   and the page a few px scrollable, even though .app-shell itself never
+   needs to scroll. Matching units here closes that gap. The settings/sign-in
+   screens still scroll normally: they grow past this min-height on purpose. */
+body { margin: 0; min-width: 320px; min-height: 100dvh; background: var(--bg); }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
