@@ -107,15 +107,18 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
 
   const errorMessage = dictation.error ? messageForError(dictation.error) : null;
   const hasResult = Boolean(dictation.result);
-  // The intro explains the product to a first-time user; from the second visit
-  // on it is dead weight in front of the tool, so one finished run retires it.
-  const showIntro = !settings.hasCompletedFirstRun;
+  // The intro explains the product to a first-time user; once they have a
+  // finished transcript it is dead weight in front of the tool, so it retires
+  // for the rest of this session. It is not persisted, so it greets again
+  // next time the page loads.
+  const [everCompletedThisSession, setEverCompletedThisSession] = useState(false);
+  const showIntro = !everCompletedThisSession;
 
   useEffect(() => {
-    if (hasResult && !settings.hasCompletedFirstRun) {
-      update({ hasCompletedFirstRun: true });
+    if (hasResult && !everCompletedThisSession) {
+      setEverCompletedThisSession(true);
     }
-  }, [hasResult, settings.hasCompletedFirstRun, update]);
+  }, [hasResult, everCompletedThisSession]);
 
   return (
     <main className="screen recorder-screen">
