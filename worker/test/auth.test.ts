@@ -163,6 +163,21 @@ describe("GET /auth/callback", () => {
     expect(row?.consumed_at).toBeNull();
   });
 
+  it("opens from an email client, which is a cross-site navigation", async () => {
+    const testApp = buildTestApp();
+    const code = await createInvite();
+    await requestLink(testApp, { email: "gmail@example.com", inviteCode: code });
+    const link = testApp.email.lastLinkSent()!;
+
+    // What Chrome actually sends when the link is tapped in Gmail. Guarding
+    // this route as same-site would reject every real sign-in.
+    const response = await testApp.app.request(link, {
+      headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
   it("rejects a token that is not well formed", async () => {
     const testApp = buildTestApp();
     const response = await testApp.app.request(`${APP_ORIGIN}/auth/callback?token=../../etc/passwd`, {

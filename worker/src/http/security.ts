@@ -6,7 +6,11 @@ export function applySecurityHeaders(response: Response, requestId: string): Res
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Referrer-Policy", "no-referrer");
+  // Only when the route has not chosen its own: the sign-in interstitial
+  // needs same-origin so its form post carries a real Origin header.
+  if (!headers.has("Referrer-Policy")) {
+    headers.set("Referrer-Policy", "no-referrer");
+  }
   headers.set("X-Request-Id", requestId);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }

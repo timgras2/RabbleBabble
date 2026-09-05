@@ -53,6 +53,45 @@ describe("cross-site protection", () => {
     await expect(signIn(testApp, "form@example.com", { inviteCode: code })).resolves.toContain("__Host-rb_session=");
   });
 
+  it("accepts the null Origin a no-referrer form post produces", async () => {
+    const testApp = buildTestApp();
+
+    // Chrome serialises Origin as the literal "null" when the page that
+    // submits the form has a no-referrer policy. Sec-Fetch-Site still says
+    // same-origin, and rejecting this locked every real sign-in out.
+    const response = await testApp.app.request(`${APP_ORIGIN}/v1/me`, {
+      headers: jsonHeaders({ Origin: "null", "Sec-Fetch-Site": "same-origin" }),
+    });
+
+    expect(response.status).toBe(401);
+  });
+
+  it("still rejects a null Origin that claims to be cross-site", async () => {
+    const testApp = buildTestApp();
+    const response = await testApp.app.request(`${APP_ORIGIN}/v1/me`, {
+      headers: jsonHeaders({ Origin: "null", "Sec-Fetch-Site": "cross-site" }),
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it("serves the interstitial with a referrer policy its own form can use", async () => {
+    const testApp = buildTestApp();
+    const code2 = await createInvite();
+    await testApp.app.request(`${APP_ORIGIN}/auth/request-link`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: "policy@example.com", inviteCode: code2 }),
+    });
+    const link = testApp.email.lastLinkSent()!;
+
+    const response = await testApp.app.request(link, { headers: { "Sec-Fetch-Site": "cross-site" } });
+
+    // no-referrer here would make the browser send "Origin: null" on the
+    // form post and break sign-in outright.
+    expect(response.headers.get("Referrer-Policy")).toBe("same-origin");
+  });
+
   it("answers an unauthenticated request with the shared error envelope", async () => {
     const testApp = buildTestApp();
 

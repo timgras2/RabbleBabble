@@ -20,7 +20,9 @@
     "db:migrate:local": "wrangler d1 migrations apply rabblebabble --local",
     "db:migrate": "wrangler d1 migrations apply rabblebabble --remote",
     "deploy": "npm run build:service && wrangler deploy",
-    "worker:types:check": "wrangler types worker/worker-configuration.d.ts --check"
+    "worker:types:check": "wrangler types worker/worker-configuration.d.ts --check",
+    "invite:new": "node scripts/invite.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "hono": "^4.13.7",

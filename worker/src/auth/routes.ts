@@ -122,11 +122,17 @@ export function registerAuthRoutes(app: App): void {
     return c.json(response satisfies RequestLinkResponse, 202);
   });
 
-  /** Renders the confirm page. Deliberately has no side effects at all. */
+  /**
+   * Renders the confirm page. Deliberately has no side effects at all.
+   *
+   * No same-site guard here, and that is the point: a magic link is opened
+   * from an email client, so this navigation is cross-site by design.
+   * Guarding it would reject every real sign-in from Gmail. It is safe
+   * because nothing is redeemed until the POST below - this handler only
+   * echoes a token that has already been matched against a strict
+   * base64url pattern into an inert page with a locked-down CSP.
+   */
   app.get("/auth/callback", (c) => {
-    const { config } = c.get("deps");
-    requireSameSite(c.req.raw, config.appOrigin);
-
     const token = c.req.query("token") ?? "";
     if (!isWellFormedToken(token)) {
       throw invalidBody("That sign-in link is not valid.", "not-authenticated");

@@ -21,7 +21,18 @@ export function requireSameSite(request: Request, appOrigin: string): void {
   }
 
   const origin = request.headers.get("Origin");
-  if (origin !== null && origin !== appOrigin) {
+  if (origin === null) {
+    return;
+  }
+  // A referrer policy of no-referrer makes the browser serialise Origin as
+  // the literal string "null" - which is what a form post from our own
+  // interstitial used to send. Sec-Fetch-Site has already vouched for this
+  // being same-origin above, so trusting it here costs nothing and stops a
+  // future header quirk locking everyone out of sign-in.
+  if (origin === "null" && fetchSite === "same-origin") {
+    return;
+  }
+  if (origin !== appOrigin) {
     throw originRejected();
   }
 }
