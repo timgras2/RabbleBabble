@@ -71,7 +71,7 @@ export function App({ services }: AppProps) {
 
       {current === "settings" ? (
         <SettingsScreen services={services} />
-      ) : current === "sign-in" ? (
+      ) : SERVICE_MODE && current === "sign-in" ? (
         <SignInScreen services={services} />
       ) : (
         <RecorderScreen

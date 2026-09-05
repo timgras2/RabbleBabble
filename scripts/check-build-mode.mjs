@@ -23,6 +23,8 @@ const FORBIDDEN = {
     // Auth surface has no business in the no-infrastructure build.
     "/v1/me",
     "/auth/request-link",
+    // The sign-in screen itself, which can never render here.
+    "Sign in to RabbleBabble",
   ],
 };
 
