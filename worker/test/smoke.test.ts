@@ -1,10 +1,11 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
+import { buildDeps } from "../src/deps";
 
 describe("worker scaffolding", () => {
   it("answers an unknown endpoint with the shared error envelope", async () => {
-    const app = createApp({ env });
+    const app = createApp(buildDeps(env));
     const response = await app.request("/v1/nope", { method: "GET" });
 
     expect(response.status).toBe(404);

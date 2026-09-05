@@ -20,6 +20,12 @@ export default defineProject(async () => {
       include: ["test/**/*.test.ts"],
       setupFiles: ["./test/setup/applyMigrations.ts"],
       restoreMocks: true,
+      // Each test file boots its own workerd instance. Starting several at
+      // once on Windows outruns the pool startup timeout, so they run in
+      // sequence - slower, but it actually finishes.
+      fileParallelism: false,
+      testTimeout: 30_000,
+      hookTimeout: 30_000,
     },
   };
 });
