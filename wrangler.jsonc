@@ -1,0 +1,53 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "rabblebabble",
+  "main": "worker/src/index.ts",
+  "compatibility_date": "2026-09-05",
+  "workers_dev": true,
+
+  // One Worker serves the PWA and the API from a single origin. That is what
+  // keeps the session cookie first-party, removes CORS entirely, and lets the
+  // build-time CSP stay at connect-src 'self'. Asset requests are free and do
+  // not invoke the Worker; only /v1/* and /auth/* do.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/v1/*", "/auth/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rabblebabble",
+      "database_id": "PLACEHOLDER_RUN_WRANGLER_D1_CREATE",
+      "migrations_dir": "worker/migrations"
+    }
+  ],
+
+  // Sweeps expired tokens, sessions and rate-limit buckets, and reclaims
+  // budget from reservations leaked by a crashed isolate.
+  "triggers": { "crons": ["17 * * * *"] },
+
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+
+  "vars": {
+    "APP_ORIGIN": "http://localhost:8787",
+    "SIGNUP_MODE": "invite",
+    "EMAIL_MODE": "console",
+    "EMAIL_FROM": "RabbleBabble <login@example.invalid>",
+    "MAGIC_LINK_TTL_SECONDS": "900",
+    "SESSION_TTL_SECONDS": "31536000",
+    "REQUIRE_SAME_DEVICE_LINK": "true",
+    "USER_DAILY_AUDIO_SECONDS": "10800",
+    "USER_DAILY_TRANSCRIBE_CALLS": "400",
+    "USER_DAILY_CHAT_CALLS": "200",
+    "GLOBAL_DAILY_SPEND_MICROS": "1000000",
+    "TRANSCRIBE_RESERVE_SECONDS": "300",
+    "PRICE_TRANSCRIBE_MICROS_PER_HOUR": "40000",
+    "PRICE_CHAT_IN_MICROS_PER_MTOK": "75000",
+    "PRICE_CHAT_OUT_MICROS_PER_MTOK": "300000",
+    "GROQ_BASE_URL": "https://api.groq.com/openai/v1",
+    "LOG_LEVEL": "info"
+  }
+}

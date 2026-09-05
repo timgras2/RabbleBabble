@@ -5,7 +5,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "node_modules", "coverage"],
+    ignores: ["dist", "node_modules", "coverage", ".wrangler", "worker/worker-configuration.d.ts"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
@@ -47,6 +47,30 @@ export default tseslint.config(
         { name: "Blob", message: "src/shared must stay free of platform types." },
         { name: "FormData", message: "src/shared must stay free of platform types." },
         { name: "caches", message: "src/shared must stay free of platform types." },
+      ],
+    },
+  },
+  {
+    files: ["worker/**/*.ts"],
+    languageOptions: {
+      globals: {
+        ...globals.worker,
+        ...globals.node,
+      },
+    },
+    rules: {
+      // The Worker shares src/shared and nothing else. Reaching into the
+      // browser adapters would drag DOM assumptions into workerd.
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/platform/**", "**/ui/**", "**/services/**", "**/app/**"],
+              message: "The Worker may only import from src/shared.",
+            },
+          ],
+        },
       ],
     },
   },

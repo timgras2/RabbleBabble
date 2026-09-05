@@ -1,0 +1,13 @@
+# Local Worker secrets. Copy to .dev.vars (gitignored) and fill in.
+# In production these are set with `wrangler secret put <NAME>`, never here.
+
+# The central Groq key. This is the whole reason the backend exists.
+GROQ_API_KEY="gsk_replace_me"
+
+# Resend API key. Leave as-is while EMAIL_MODE=console.
+RESEND_API_KEY="re_replace_me"
+
+# 32 random bytes, base64. Makes stored IP hashes non-reversible, so abuse
+# forensics do not cost you a GDPR-relevant log of who dictated from where.
+# Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+IP_HASH_PEPPER="replace_me"

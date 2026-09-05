@@ -28,6 +28,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fails if worker-configuration.d.ts has drifted from wrangler.jsonc.
+      - name: Check Worker types are current
+        run: npm run worker:types:check
+
       - name: Lint
         run: npm run lint
 

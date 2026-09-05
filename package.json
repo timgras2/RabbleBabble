@@ -6,24 +6,36 @@
   "scripts": {
     "dev": "vite --config src/vite.config.mjs --mode service",
     "dev:byok": "vite --config src/vite.config.mjs --mode byok",
+    "dev:worker": "wrangler dev",
     "build": "npm run build:service",
     "build:service": "tsc --noEmit && vite build --config src/vite.config.mjs --mode service",
     "build:byok": "tsc --noEmit && vite build --config src/vite.config.mjs --mode byok",
     "preview": "vite preview --config src/vite.config.mjs --mode service",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
+    "test": "vitest run",
+    "test:app": "vitest run --project app",
+    "test:worker": "vitest run --project worker",
+    "worker:types": "wrangler types worker/worker-configuration.d.ts",
+    "db:migrate:local": "wrangler d1 migrations apply rabblebabble --local",
+    "db:migrate": "wrangler d1 migrations apply rabblebabble --remote",
+    "deploy": "npm run build:service && wrangler deploy",
+    "worker:types:check": "wrangler types worker/worker-configuration.d.ts --check"
   },
   "dependencies": {
+    "hono": "^4.13.7",
     "lucide-react": "^1.39.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.1.1",
+    "@cloudflare/vitest-plugin": "^1.1.4",
     "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.12.0",
@@ -31,8 +43,8 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.69.0",
     "vite": "^8.2.2",
-    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "vite-plugin-pwa": "^1.3.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.129.0"
   }
 }
