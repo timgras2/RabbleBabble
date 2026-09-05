@@ -52,11 +52,60 @@
   --shadow-btn-hover: 0 21px 32px rgba(23, 33, 43, 0.18);
   --shadow-btn-active: 0 8px 15px rgba(23, 33, 43, 0.12);
 
+  color-scheme: light dark;
   color: var(--ink);
   background: var(--bg);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+/* An Android-first PWA used at all hours on an OLED screen needs this.
+   A warm dark ground rather than pure black keeps the paper feel, and the
+   ink scale simply inverts -- so --ink stays "most emphasis" and the record
+   button becomes light-on-dark without any rule below changing. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171512;
+    --surface: #211e1a;
+    --surface-alt: #26221d;
+    --surface-muted: #2b2721;
+
+    --ink: #f2eee7;
+    --ink-2: #e8e2d9;
+    --ink-3: #d9d2c7;
+    --ink-4: #bcb4a8;
+    --muted: #a89f93;
+    --muted-2: #a49b8f;
+    --muted-3: #a09789;
+    --muted-4: #9c9386;
+    /* Text sitting on --ink or --accent, both light in this theme. */
+    --on-dark: #171512;
+
+    --border: #38332c;
+    --border-strong: #332e28;
+    --border-soft: #2e2a24;
+
+    --accent: #ef7d64;
+    --accent-strong: #f5947f;
+    --accent-deep: #b8482f;
+    --accent-tint: rgba(239, 118, 93, 0.22);
+
+    --ok: #6fbf95;
+    --danger: #f08d7c;
+    --danger-ink: #f7c3b8;
+    --danger-ink-2: #e0a396;
+    --danger-bg: #33211d;
+    --danger-border: #4d302a;
+    --warn: #d9a45f;
+
+    --lip: #0f0d0b;
+    --shadow-card: 0 18px 48px rgba(0, 0, 0, 0.36);
+    --shadow-nav: 0 3px 12px rgba(0, 0, 0, 0.4);
+    --shadow-btn: 0 18px 30px rgba(0, 0, 0, 0.45);
+    --shadow-btn-hover: 0 21px 32px rgba(0, 0, 0, 0.5);
+    --shadow-btn-active: 0 8px 15px rgba(0, 0, 0, 0.4);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -159,7 +208,10 @@ h1 em { color: var(--accent); font-style: normal; }
 .rewrite-form__meta { margin-top: 5px; color: var(--muted-3); font-size: 10px; text-align: right; }
 .rewrite-form__actions { margin-top: 11px; display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .rewrite-form__apply, .rewrite-form__cancel { min-height: 44px; border-radius: 10px; font-size: 12px; font-weight: 800; }
-.rewrite-form__apply { border: 0; color: var(--on-dark); background: var(--accent); }
+/* Ink, not terracotta: cream on terracotta measures 2.72:1. Reserving the
+   accent for signals rather than for every filled button fixes the contrast
+   and stops one decorative colour doing five different jobs. */
+.rewrite-form__apply { border: 0; color: var(--on-dark); background: var(--ink); }
 .rewrite-form__apply:disabled { cursor: not-allowed; opacity: .55; }
 .rewrite-form__cancel { padding: 0 14px; border: 1px solid var(--border); color: var(--muted); background: transparent; }
 .inline-warning, .copy-status { margin: 0 0 15px; display: flex; align-items: center; gap: 6px; color: var(--warn); font-size: 12px; line-height: 1.4; }
@@ -191,7 +243,7 @@ h1 em { color: var(--accent); font-style: normal; }
 .model-note { margin: 2px 0 23px; padding: 14px 15px; border-radius: 12px; display: grid; gap: 4px; background: var(--surface-muted); }
 .model-note span, .model-note small { color: var(--muted-3); font-size: 11px; }
 .model-note strong { color: var(--ink-4); font-size: 13px; }
-.primary-button { width: 100%; background: var(--accent); }
+.primary-button { width: 100%; background: var(--ink); }
 .saved-message { margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--ok); font-size: 12px; font-weight: 700; }
 .danger-zone { margin-top: 20px; padding: 18px 2px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .danger-zone div { display: grid; gap: 4px; }
