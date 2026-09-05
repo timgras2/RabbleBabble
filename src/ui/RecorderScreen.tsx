@@ -2,7 +2,6 @@ import { AlertCircle, Check, Clipboard, Info, Pencil, ShieldCheck } from "lucide
 import { useEffect, useState } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
-import { useSettings } from "../hooks/useSettings";
 import { AdapterError } from "../platform/errors";
 import { MAX_REWRITE_INSTRUCTION_LENGTH } from "../platform/inference/groqClient";
 import { LevelMeter } from "./components/LevelMeter";
@@ -16,7 +15,6 @@ interface RecorderScreenProps {
 
 export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps) {
   const dictation = useDictation(services);
-  const { settings, update } = useSettings(services);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
   const [rewriteOpen, setRewriteOpen] = useState(false);
@@ -112,13 +110,10 @@ export function RecorderScreen({ services, onOpenSettings }: RecorderScreenProps
   // for the rest of this session. It is not persisted, so it greets again
   // next time the page loads.
   const [everCompletedThisSession, setEverCompletedThisSession] = useState(false);
+  if (hasResult && !everCompletedThisSession) {
+    setEverCompletedThisSession(true);
+  }
   const showIntro = !everCompletedThisSession;
-
-  useEffect(() => {
-    if (hasResult && !everCompletedThisSession) {
-      setEverCompletedThisSession(true);
-    }
-  }, [hasResult, everCompletedThisSession]);
 
   return (
     <main className="screen recorder-screen">
