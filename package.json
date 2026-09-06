@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "hono": "^4.13.7",
-    "lucide-react": "^1.39.0",
+    "lucide-react": "^1.40.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -43,7 +43,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^10.9.1",
