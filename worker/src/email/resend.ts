@@ -1,4 +1,5 @@
 import { EmailSendError, type EmailMessage, type EmailSender } from "./port";
+import { defaultFetch } from "../http/fetcher";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const TIMEOUT_MS = 10_000;
@@ -12,7 +13,7 @@ export class ResendEmailSender implements EmailSender {
   constructor(
     private readonly apiKey: string,
     private readonly from: string,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = defaultFetch(),
   ) {}
 
   async send(message: EmailMessage): Promise<void> {

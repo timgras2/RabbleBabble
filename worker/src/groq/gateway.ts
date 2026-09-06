@@ -1,4 +1,5 @@
 import { CLEANUP_MODEL, TRANSCRIPTION_MODEL } from "../../../src/shared/models";
+import { defaultFetch } from "../http/fetcher";
 import type { ChatMessage } from "../../../src/shared/prompts";
 import {
   internalError,
@@ -44,7 +45,7 @@ export class GroqGateway {
   constructor(options: GroqGatewayOptions) {
     this.baseUrl = options.baseUrl;
     this.apiKey = options.apiKey;
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = options.fetcher ?? defaultFetch();
   }
 
   async transcribe(request: {
