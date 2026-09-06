@@ -29,13 +29,21 @@ Android PWA  ──HTTPS, session cookie──┐
                           ├─ /auth/*  magic link, sessions
                           ├─ /v1/*    transcribe, cleanup, rewrite
                           ├─ D1       users, sessions, counters
-                          └─ Groq API (server-side key)
+                          ├─ Groq API (server-side key)
+                          └─ Resend   the sign-in link, and nothing else
 ```
+
+The app answers on `https://rabblebabble.cc`, and that origin is also what the
+magic link points at: `APP_ORIGIN` is the single value deciding both. Mail
+leaves from `login@send.rabblebabble.cc` - a sending subdomain, so a delivery
+reputation problem can never reach the domain the app itself lives on.
 
 One Worker serves both the app and the API. That is what keeps the session
 cookie first-party, removes CORS entirely, and lets the build-time CSP stay at
-`connect-src 'self'`. Audio and transcripts are never persisted: D1 holds an
-email address, a session hash, and numeric usage counters.
+`connect-src 'self'`. `workers_dev` is off for the same reason: a second
+hostname would serve a copy whose sign-in cannot work, because the `__Host-`
+cookie does not follow it. Audio and transcripts are never persisted: D1 holds
+an email address, a session hash, and numeric usage counters.
 
 The bring-your-own-key build keeps the V1 shape - browser straight to Groq -
 and is what GitHub Pages serves.

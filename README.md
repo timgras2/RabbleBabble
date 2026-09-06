@@ -63,9 +63,13 @@ npm run build:service            # wrangler serves ./dist as static assets
 npm run dev:worker               # http://localhost:8787
 ```
 
-`EMAIL_MODE=console` (the default in `wrangler.jsonc`) prints the sign-in link
-to the console and returns it in the response, so the whole flow works before a
-sending domain is verified.
+`npm run dev:worker` overrides two of the deployed vars with `--var`: it points
+`APP_ORIGIN` at `localhost:8787` so the same-site guard accepts local requests,
+and forces `EMAIL_MODE=console`, which prints the sign-in link to the console
+and returns it in the response instead of sending mail. No Resend key is needed
+and none can be used by accident. To exercise real sending on purpose, use
+`npm run dev:worker:mail`, which keeps the local origin but sends through
+Resend.
 
 ```text
 npm run invite:new               # mint an invite code
@@ -86,23 +90,45 @@ against a mock that agrees with whatever the code happens to do.
 
 ## Deploying
 
+The committed `wrangler.jsonc` **is** production: `wrangler deploy` runs with no
+`--env`, so whatever is in that file is what ships. It currently deploys to
+`https://rabblebabble.cc`, sending mail through Resend from
+`login@send.rabblebabble.cc`.
+
 ### First time
 
 1. `npx wrangler d1 create rabblebabble`, then put the returned id into
    `wrangler.jsonc`.
-2. Set the secrets: `npx wrangler secret put GROQ_API_KEY`, then
-   `RESEND_API_KEY` and `IP_HASH_PEPPER` the same way.
-3. Point `APP_ORIGIN` at the deployed origin and set `EMAIL_MODE=resend` with a
-   real `EMAIL_FROM` once a domain is verified in Resend.
-4. `npm run db:migrate` then `npm run deploy`.
+2. **Verify the sending domain in Resend before anything else.** Add
+   `send.rabblebabble.cc`, pick a region (permanent), and copy the DNS records
+   Resend shows into the Cloudflare zone. Two Cloudflare-specific traps: enter
+   names without the zone suffix (`resend._domainkey.send`, not
+   `resend._domainkey.send.rabblebabble.cc`), and set every record to **DNS
+   only**, since a proxied record fails Resend's check with error 1004.
+3. Add DMARC on the root: TXT `_dmarc` = `v=DMARC1; p=none;
+   rua=mailto:dmarc@rabblebabble.cc;`. Start at `p=none`; tighten only once
+   reports show mail passing.
+4. Set the secrets: `npx wrangler secret put GROQ_API_KEY`, then
+   `RESEND_API_KEY` and `IP_HASH_PEPPER` the same way. Scope the Resend key to
+   sending access on `send.rabblebabble.cc`.
+5. Add the custom domain in the Cloudflare dashboard (Workers & Pages →
+   rabblebabble → Domains & Routes) and confirm it resolves. The `routes` block
+   in `wrangler.jsonc` then keeps it, but the first attachment needs an API
+   token carrying `Zone:DNS:Edit` and `Workers Routes:Edit`.
+6. `npm run db:migrate` then `npm run deploy`.
 
-**Resend will only deliver to addresses other than your own account's once you
-have verified a sending domain** (SPF and DKIM DNS records). Until then, run
-with `EMAIL_MODE=console` and hand people the link yourself.
+**Do not deploy with `EMAIL_MODE=resend` before step 2 completes.** Resend will
+only deliver to addresses other than your own account's once a sending domain
+is verified. Until then every send fails, `auth/routes.ts` swallows the error by
+design so it cannot leak account existence, and the API still answers
+`202 {"status":"sent"}` — a misconfiguration that looks exactly like success.
+`npx wrangler tail` is where it shows: a `magic-link-send-failed` line carrying
+Resend's error name instead of an `email-sent` line carrying a message id.
 
 The app and the API must stay on one origin. That is what keeps the session
 cookie first-party, removes CORS, and lets the build-time CSP stay at
-`connect-src 'self'`.
+`connect-src 'self'`. `workers_dev` is off for the same reason: a second
+hostname would serve a copy whose sign-in cannot work.
 
 ### Ongoing
 
