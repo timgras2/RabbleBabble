@@ -1,6 +1,5 @@
 import { AlertCircle, Check, Clipboard, Info, Pencil, Share2, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Ref } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
 import { AdapterError } from "../platform/errors";
@@ -12,16 +11,18 @@ import type { DictationState } from "../services/types";
 import { LevelMeter } from "./components/LevelMeter";
 import { RecordButton } from "./components/RecordButton";
 import { haptics } from "./haptics";
+import { useScreenFocus } from "../hooks/useScreenFocus";
 
 interface RecorderScreenProps {
   readonly services: AppServices;
   readonly onOpenSettings: () => void;
   readonly onSignIn: () => void;
-  /** App focuses this after a route change, so navigation is announced. */
-  readonly focusRef?: Ref<HTMLElement>;
+  /** True when a navigation brought this screen here, so it takes focus. */
+  readonly focusOnMount?: boolean;
 }
 
-export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }: RecorderScreenProps) {
+export function RecorderScreen({ services, onOpenSettings, onSignIn, focusOnMount = false }: RecorderScreenProps) {
+  const screenRef = useScreenFocus(focusOnMount);
   const dictation = useDictation(services);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
@@ -245,7 +246,7 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
         : "";
 
   return (
-    <main className={`screen recorder-screen${hasResult ? "" : " recorder-screen--idle"}`} ref={focusRef} tabIndex={-1}>
+    <main className={`screen recorder-screen${hasResult ? "" : " recorder-screen--idle"}`} ref={screenRef} tabIndex={-1}>
       <div className="visually-hidden" aria-live="polite" aria-atomic="true">{politeAnnouncement}</div>
       <div className="visually-hidden" role="alert" aria-atomic="true">{assertiveAnnouncement}</div>
       <div className="transcript-zone">

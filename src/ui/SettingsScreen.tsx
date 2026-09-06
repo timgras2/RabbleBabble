@@ -1,5 +1,5 @@
 import { BookText, Check, Eye, EyeOff, History, KeyRound, Languages, Save, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type Ref } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { SERVICE_MODE } from "../app/mode";
 import type { AppServices } from "../app/types";
 import { useSettings } from "../hooks/useSettings";
@@ -7,15 +7,18 @@ import { useAuthSession } from "../hooks/useAuthSession";
 import { MAX_VOCABULARY_CHARS } from "../shared/limits";
 import { AccountPanel } from "./settings/AccountPanel";
 import { HistoryList } from "./settings/HistoryList";
+import { useScreenFocus } from "../hooks/useScreenFocus";
 
 interface SettingsScreenProps {
   readonly services: AppServices;
-  readonly focusRef?: Ref<HTMLElement>;
+  /** True when a navigation brought this screen here, so it takes focus. */
+  readonly focusOnMount?: boolean;
 }
 
 const LANGUAGE_SAVE_DELAY_MS = 600;
 
-export function SettingsScreen({ services, focusRef }: SettingsScreenProps) {
+export function SettingsScreen({ services, focusOnMount = false }: SettingsScreenProps) {
+  const screenRef = useScreenFocus(focusOnMount);
   const { settings, update, clearApiKey } = useSettings(services);
   const auth = useAuthSession(services);
   const [apiKey, setApiKey] = useState(settings.groqApiKey);
@@ -91,7 +94,7 @@ export function SettingsScreen({ services, focusRef }: SettingsScreenProps) {
   };
 
   return (
-    <main className="screen settings-screen" ref={focusRef} tabIndex={-1}>
+    <main className="screen settings-screen" ref={screenRef} tabIndex={-1}>
       {/* The screen's one polite announcer. */}
       <div className="visually-hidden" aria-live="polite" aria-atomic="true">
         {saved ? "Settings saved on this device." : ""}

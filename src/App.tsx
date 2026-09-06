@@ -1,5 +1,5 @@
 import { ArrowLeft, Settings2 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { SERVICE_MODE } from "./app/mode";
 import type { AppServices } from "./app/types";
 import { useAuthSession, useHasTranscript } from "./hooks/useAuthSession";
@@ -42,16 +42,17 @@ export function App({ services }: AppProps) {
 
   // Swapping the whole <main> without moving focus leaves a screen-reader user
   // and a keyboard user on a button that no longer exists, with nothing said
-  // about where they now are. Only one screen is mounted, so one ref does.
-  const mainRef = useRef<HTMLElement>(null);
-  const shownScreen = useRef(current);
-  useEffect(() => {
-    if (shownScreen.current === current) {
-      return;
-    }
-    shownScreen.current = current;
-    mainRef.current?.focus();
-  }, [current]);
+  // about where they now are.
+  //
+  // The screen focuses itself rather than App focusing a ref: Settings is a
+  // lazy chunk, so it is not mounted yet when a route-change effect here would
+  // run, and the ref would be null. Only ever true after a real navigation --
+  // grabbing focus on first paint would be its own small rudeness.
+  const [navigated, setNavigated] = useState(false);
+  const go = (next: Screen) => {
+    setNavigated(true);
+    setScreen(next);
+  };
 
   // SERVICE_MODE is a build-time constant, so the whole branch disappears from
   // the bring-your-own-key bundle.
@@ -79,7 +80,7 @@ export function App({ services }: AppProps) {
       <header className="app-header">
         {onSettings ? (
           <div className="header-left">
-            <button className="icon-button" type="button" onClick={() => setScreen("recorder")} aria-label="Back to recorder">
+            <button className="icon-button" type="button" onClick={() => go("recorder")} aria-label="Back to recorder">
               <ArrowLeft size={20} />
             </button>
             <span className="header-title" aria-hidden="true">Settings</span>
@@ -91,7 +92,7 @@ export function App({ services }: AppProps) {
           </span>
         )}
         {current === "recorder" && (
-          <button className="icon-button" type="button" onClick={() => setScreen("settings")} aria-label="Open settings">
+          <button className="icon-button" type="button" onClick={() => go("settings")} aria-label="Open settings">
             <Settings2 size={20} />
           </button>
         )}
@@ -106,15 +107,15 @@ export function App({ services }: AppProps) {
 
       <Suspense fallback={<main className="screen" />}>
         {current === "settings" ? (
-          <SettingsScreen services={services} focusRef={mainRef} />
+          <SettingsScreen services={services} focusOnMount={navigated} />
         ) : SERVICE_MODE && current === "sign-in" ? (
-          <SignInScreen services={services} focusRef={mainRef} />
+          <SignInScreen services={services} focusOnMount={navigated} />
         ) : (
           <RecorderScreen
             services={services}
-            focusRef={mainRef}
-            onOpenSettings={() => setScreen("settings")}
-            onSignIn={() => setScreen("sign-in")}
+            focusOnMount={navigated}
+            onOpenSettings={() => go("settings")}
+            onSignIn={() => go("sign-in")}
           />
         )}
       </Suspense>
