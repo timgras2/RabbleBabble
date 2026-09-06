@@ -42,8 +42,11 @@ One Worker serves both the app and the API. That is what keeps the session
 cookie first-party, removes CORS entirely, and lets the build-time CSP stay at
 `connect-src 'self'`. `workers_dev` is off for the same reason: a second
 hostname would serve a copy whose sign-in cannot work, because the `__Host-`
-cookie does not follow it. Audio and transcripts are never persisted: D1 holds
-an email address, a session hash, and numeric usage counters.
+cookie does not follow it. Audio and transcripts are never persisted server-side:
+D1 holds an email address, a session hash, numeric usage counters and the user's
+personal vocabulary. On the device, in-flight audio is buffered to IndexedDB and
+deleted as soon as a transcript comes back; opt-in transcript history lives in
+the same store and is off by default.
 
 The bring-your-own-key build keeps the V1 shape - browser straight to Groq -
 and is what GitHub Pages serves.
@@ -258,7 +261,10 @@ const DEFAULT_SETTINGS: Settings = {
 };
 ```
 
-No history store exists in v1. The transcription model
+There is no *server-side* history store, and there never will be. On-device
+history (`historyEnabled`, default false) is a device-local safety net in the
+IndexedDB store, capped and clearable in one tap; if it ever grows a search
+surface or an editing UI it has become a different product. The transcription model
 `whisper-large-v3-turbo` and cleanup model `openai/gpt-oss-20b` are fixed constants in
 `groqClient.ts`; they are not free-form settings. The Clear API Key action calls
 `clearApiKey` only after a confirmation or explicit user action; it must not silently

@@ -12,7 +12,7 @@ describe("GroqHttpClient", () => {
   it("sends native multipart audio and omits an empty language", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ text: "hello" }));
     const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
-    const audio = { blob: new Blob(["audio"], { type: "audio/mp4" }), mimeType: "audio/mp4", durationMs: 1000, endedBy: "user" as const };
+    const audio = { id: "test-recording", blob: new Blob(["audio"], { type: "audio/mp4" }), mimeType: "audio/mp4", durationMs: 1000, endedBy: "user" as const };
 
     await expect(client.transcribe({ audio, language: "" })).resolves.toEqual({ text: "hello" });
     const request = fetcher.mock.calls[0];
@@ -92,7 +92,7 @@ describe("GroqHttpClient", () => {
         .mockResolvedValueOnce(jsonResponse({}, 502))
         .mockResolvedValueOnce(jsonResponse({ text: "recovered" }));
       const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
-      const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
+      const audio = { id: "test-recording", blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
       const request = client.transcribe({ audio });
 
       await vi.runAllTimersAsync();
@@ -106,7 +106,7 @@ describe("GroqHttpClient", () => {
   it("rejects oversized audio before calling fetch", async () => {
     const fetcher = vi.fn<typeof fetch>();
     const client = new GroqHttpClient({ fetcher, apiKey: () => "secret" });
-    const audio = { blob: new Blob([new Uint8Array(26_214_401)], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
+    const audio = { id: "test-recording", blob: new Blob([new Uint8Array(26_214_401)], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
 
     await expect(client.transcribe({ audio })).rejects.toMatchObject({ code: "recording-too-large" });
     expect(fetcher).not.toHaveBeenCalled();
@@ -123,7 +123,7 @@ describe("GroqHttpClient", () => {
         );
       }));
       const client = new GroqHttpClient({ fetcher, apiKey: () => "secret", transcriptionTimeoutMs: 10 });
-      const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
+      const audio = { id: "test-recording", blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
       const request = client.transcribe({ audio });
       const result = expect(request).rejects.toMatchObject({ code: "api-timeout" });
       await Promise.resolve();

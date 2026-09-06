@@ -3,6 +3,8 @@ import type { AudioRecorder, AudioRecording, RecordingState } from "../platform/
 import type { AuthSession, AuthState } from "../platform/auth/types";
 import type { ClipboardAdapter, ClipboardResult } from "../platform/clipboard/types";
 import type { InferenceClient } from "../platform/inference/types";
+import type { AudioRecording as StoredAudio } from "../platform/audio/types";
+import type { BufferedRecording, HistoryEntry, LocalStore } from "../platform/store/types";
 import { DEFAULT_SETTINGS } from "../platform/storage/localStorageSettings";
 import type { Settings, SettingsRepository } from "../platform/storage/types";
 import { DictationFlowService } from "../services/dictationFlow";
@@ -27,7 +29,7 @@ export function fakeRecorder(overrides: Partial<AudioRecorder> = {}): FakeRecord
     state: "idle",
     startedAt: null,
     next: {
-      blob: new Blob(["audio"], { type: "audio/webm" }),
+      id: "test-recording", blob: new Blob(["audio"], { type: "audio/webm" }),
       mimeType: "audio/webm",
       durationMs: 1_000,
       endedBy: "user",
@@ -126,6 +128,36 @@ export function fakeInference(overrides: Partial<InferenceClient> = {}): Inferen
   };
 }
 
+/** In-memory, and synchronous enough that tests never have to poll it. */
+export function fakeStore(seed: readonly StoredAudio[] = []): LocalStore {
+  const recordings = new Map<string, StoredAudio>(seed.map((audio) => [audio.id, audio]));
+  let transcripts: HistoryEntry[] = [];
+  return {
+    open: () => undefined,
+    write: () => undefined,
+    close: () => undefined,
+    listRecordings: async (): Promise<readonly BufferedRecording[]> =>
+      [...recordings.values()].map((audio) => ({
+        id: audio.id,
+        createdAt: 1,
+        mimeType: audio.mimeType,
+        bytes: audio.blob.size,
+      })),
+    loadRecording: async (id) => recordings.get(id) ?? null,
+    dropRecording: async (id) => {
+      recordings.delete(id);
+    },
+    saveTranscript: async (text) => {
+      transcripts = [{ id: String(transcripts.length), createdAt: Date.now(), text }, ...transcripts];
+    },
+    listTranscripts: async () => transcripts,
+    clearTranscripts: async () => {
+      transcripts = [];
+    },
+    sweep: async () => undefined,
+  };
+}
+
 export interface TestServices extends AppServices {
   readonly recorder: FakeRecorder;
 }
@@ -136,16 +168,19 @@ export function testServices(parts: {
   readonly settings?: SettingsRepository;
   readonly session?: AuthSession;
   readonly clipboard?: ClipboardAdapter;
+  readonly store?: LocalStore;
 } = {}): TestServices {
   const recorder = parts.recorder ?? fakeRecorder();
   const settings = parts.settings ?? fakeSettings({ cleanupEnabled: false });
   const inference = parts.inference ?? fakeInference();
+  const store = parts.store ?? fakeStore();
   return {
     recorder,
     settings,
     inference,
+    store,
     session: parts.session ?? fakeSession(),
     clipboard: parts.clipboard ?? fakeClipboard(),
-    dictation: new DictationFlowService({ recorder, settings, inference }),
+    dictation: new DictationFlowService({ recorder, settings, inference, store }),
   };
 }

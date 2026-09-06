@@ -78,7 +78,7 @@ export function SettingsScreen({ services, focusRef }: SettingsScreenProps) {
         <h1>Settings</h1>
         <p>
           {SERVICE_MODE
-            ? "Audio is sent to RabbleBabble, transcribed, and never stored. Preferences stay on this device."
+            ? "Audio is sent to RabbleBabble, transcribed, and never stored there. It is held on this device only until the transcript comes back."
             : "These settings stay on this device. Your key is used directly by your browser to reach Groq."}
         </p>
       </section>

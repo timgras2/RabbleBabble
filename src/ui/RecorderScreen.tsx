@@ -177,7 +177,42 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
   }
   const showIntro = !everCompletedThisSession;
 
-  const stateLabel = STATE_LABELS[dictation.state];
+  // The one thing this app must never do is lose words, and a stray back
+  // gesture mid-recording -- or with an uncopied transcript on screen -- does
+  // exactly that. Browsers only honour this after a real interaction, which a
+  // recording always is.
+  const atRisk = dictation.state === "recording" || hasResult;
+  useEffect(() => {
+    if (!atRisk) {
+      return;
+    }
+    const guard = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [atRisk]);
+
+  // getInputLevel() was well implemented and fed nothing but the meter, which
+  // only helps someone looking at the screen -- the one thing a dictation user
+  // is not doing. A wrong or muted input reads as sustained silence.
+  const [silent, setSilent] = useState(false);
+  const recording = dictation.state === "recording";
+  useEffect(() => {
+    if (!recording) {
+      return;
+    }
+    let quietTicks = 0;
+    const timer = setInterval(() => {
+      const level = services.recorder.getInputLevel();
+      quietTicks = level !== null && level < SILENCE_LEVEL ? quietTicks + 1 : 0;
+      setSilent(quietTicks >= SILENCE_TICKS);
+    }, SILENCE_TICK_MS);
+    return () => {
+      clearInterval(timer);
+      setSilent(false);
+    };
+  }, [recording, services.recorder]);
+
+  const stateLabel = silent && recording ? SILENT_LABEL : STATE_LABELS[dictation.state];
   // Exactly two live regions on the screen, both empty of interactive content.
   // The old model wrapped the whole result card -- transcript, rewrite form and
   // copy button -- in one polite region containing three more, so a single
@@ -263,6 +298,27 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
         </section>
       )}
 
+        {dictation.recoverable !== null && (
+          <div className="notice notice--info">
+            <Info size={19} />
+            <div>
+              <strong>An unfinished recording is still here</strong>
+              <span>
+                A recording from an earlier session never got a transcript back. Transcribe it now, or
+                discard it?
+              </span>
+            </div>
+            <div className="notice__actions">
+              <button type="button" className="text-button" onClick={() => void dictation.recoverBuffered()}>
+                Transcribe
+              </button>
+              <button type="button" className="text-button" onClick={() => void dictation.discardBuffered()}>
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
         {dictation.notice && !errorMessage && (
           <div className="notice notice--info">
             <Info size={19} />
@@ -313,11 +369,20 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
             </button>
           )}
         </div>
-        <div className="trust-line"><ShieldCheck size={15} /> Audio is sent when you stop. Nothing is saved as history.</div>
+        <div className="trust-line">
+          <ShieldCheck size={15} /> Audio is sent when you stop, and deleted from this device once the
+          transcript arrives.
+        </div>
       </section>
     </main>
   );
 }
+
+/** Six seconds under a level normal speech clears easily. */
+const SILENCE_LEVEL = 0.04;
+const SILENCE_TICK_MS = 500;
+const SILENCE_TICKS = 12;
+const SILENT_LABEL = "Recording, but hearing nothing - check the microphone";
 
 const STATE_LABELS: Record<DictationState, string> = {
   idle: "Tap to start recording",

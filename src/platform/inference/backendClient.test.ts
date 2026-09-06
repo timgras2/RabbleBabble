@@ -33,7 +33,7 @@ function apiError(code: string, status: number, retryable = false): Response {
   return jsonResponse({ error: { code, reason: "invalid-body", message: "nope", retryable, requestId: "r1" } }, status);
 }
 
-const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
+const audio = { id: "test-recording", blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
 
 describe("BackendClient", () => {
   it("posts raw audio bytes with no credential of its own", async () => {
@@ -121,7 +121,7 @@ describe("BackendClient", () => {
     const fetcher = vi.fn<typeof fetch>();
     const client = new BackendClient({ fetcher, session: fakeSession() });
     const huge = {
-      blob: new Blob([new Uint8Array(26_214_401)], { type: "audio/webm" }),
+      id: "test-recording", blob: new Blob([new Uint8Array(26_214_401)], { type: "audio/webm" }),
       mimeType: "audio/webm",
       durationMs: 1000, endedBy: "user" as const
     };

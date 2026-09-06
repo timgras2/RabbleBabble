@@ -1,4 +1,5 @@
 import type { Unsubscribe } from "../types";
+import type { RecordingSink } from "../store/types";
 
 /**
  * "auto-stopped" is the recorder having ended itself at a limit with nobody
@@ -14,6 +15,8 @@ export type RecordingState = "idle" | "recording" | "stopping" | "auto-stopped" 
 export type RecordingEndCause = "user" | "duration-limit" | "byte-limit" | "interrupted";
 
 export interface AudioRecording {
+  /** Identifies the buffered copy in the local store, so it can be deleted. */
+  readonly id: string;
   readonly blob: Blob;
   readonly mimeType: string;
   readonly durationMs: number;
@@ -27,6 +30,11 @@ export interface AudioRecorderOptions {
   readonly maxBytes?: number;
   /** Passed to MediaRecorder. Capping it keeps mobile uploads small. */
   readonly audioBitsPerSecond?: number;
+  /**
+   * Receives each timeslice as it arrives, so a reload cannot lose the audio.
+   * Optional, and never allowed to fail a recording: see RecordingSink.
+   */
+  readonly sink?: RecordingSink;
 }
 
 export interface AudioRecorder {

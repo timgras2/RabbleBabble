@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MediaRecorderAdapter } from "../platform/audio/MediaRecorderAdapter";
 import { DictationFlowService } from "../services/dictationFlow";
-import { fakeClipboard, fakeInference, fakeSession, fakeSettings } from "../test/services";
+import { fakeClipboard, fakeInference, fakeSession, fakeSettings, fakeStore } from "../test/services";
 import type { AppServices } from "../app/types";
 import { RecorderScreen } from "./RecorderScreen";
 
@@ -47,6 +47,7 @@ describe("record tap", () => {
       recorder,
       settings,
       inference,
+      store: fakeStore(),
       session: fakeSession(),
       clipboard: fakeClipboard(),
       dictation: new DictationFlowService({ recorder, settings, inference }),

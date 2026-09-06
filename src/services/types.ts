@@ -1,4 +1,5 @@
 import type { AdapterError } from "../platform/errors";
+import type { BufferedRecording } from "../platform/store/types";
 import type { Unsubscribe } from "../platform/types";
 
 export type DictationState =
@@ -32,6 +33,12 @@ export interface DictationSnapshot {
   readonly notice: string | null;
   /** A recording is still held, so the upload can be retried as-is. */
   readonly canRetry: boolean;
+  /**
+   * Audio found in the local buffer on boot, from a session that never
+   * delivered a transcript. Offered rather than transcribed: spending the
+   * user's quota on something they did not ask for is not a favour.
+   */
+  readonly recoverable: BufferedRecording | null;
 }
 
 export interface DictationFlow {
@@ -46,6 +53,10 @@ export interface DictationFlow {
   stop(): Promise<DictationResult>;
   /** Re-sends a recording held after a failed upload. No re-recording. */
   retryUpload(): Promise<DictationResult>;
+  /** Transcribes the buffered recording the user has just accepted. */
+  recoverBuffered(): Promise<DictationResult>;
+  /** Deletes it instead. */
+  discardBuffered(): Promise<void>;
   rewrite(instruction: string): Promise<DictationResult>;
   cancel(): Promise<void>;
   subscribe(listener: () => void): Unsubscribe;

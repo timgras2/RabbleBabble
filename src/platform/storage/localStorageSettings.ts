@@ -8,6 +8,9 @@ export const DEFAULT_SETTINGS: Settings = {
   groqApiKey: "",
   cleanupEnabled: true,
   language: "",
+  // The default carries the identity. Anything else and "nothing is saved as
+  // history" would need an asterisk.
+  historyEnabled: false,
 };
 
 export class LocalStorageSettings implements SettingsRepository {
@@ -31,6 +34,7 @@ export class LocalStorageSettings implements SettingsRepository {
       groqApiKey: patch.groqApiKey ?? this.settings.groqApiKey,
       cleanupEnabled: patch.cleanupEnabled ?? this.settings.cleanupEnabled,
       language: patch.language ?? this.settings.language,
+      historyEnabled: patch.historyEnabled ?? this.settings.historyEnabled,
     };
     this.persist();
     this.notify();
@@ -92,6 +96,7 @@ export class LocalStorageSettings implements SettingsRepository {
             ? value.cleanupEnabled
             : DEFAULT_SETTINGS.cleanupEnabled,
         language: typeof value.language === "string" ? value.language : "",
+        historyEnabled: value.historyEnabled === true,
       };
     } catch {
       return null;

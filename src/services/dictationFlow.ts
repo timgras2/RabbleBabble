@@ -3,6 +3,7 @@ import type { AdapterErrorCode } from "../platform/errors";
 import type { AudioRecorder, AudioRecording } from "../platform/audio/types";
 import type { InferenceClient } from "../platform/inference/types";
 import type { SettingsRepository } from "../platform/storage/types";
+import type { LocalStore } from "../platform/store/types";
 import type { Unsubscribe } from "../platform/types";
 import type {
   DictationFlow,
@@ -15,6 +16,8 @@ export interface DictationFlowDependencies {
   readonly recorder: AudioRecorder;
   readonly settings: SettingsRepository;
   readonly inference: InferenceClient;
+  /** Optional: without it the flow simply has no durability layer. */
+  readonly store?: LocalStore;
 }
 
 const AUTO_STOP_NOTICES: Record<string, string> = {
@@ -30,6 +33,7 @@ export class DictationFlowService implements DictationFlow {
     error: null,
     notice: null,
     canRetry: false,
+    recoverable: null,
   };
   private readonly listeners = new Set<() => void>();
   private readonly dependencies: DictationFlowDependencies;
@@ -56,6 +60,52 @@ export class DictationFlowService implements DictationFlow {
 
   getSnapshot(): DictationSnapshot {
     return this.snapshot;
+  }
+
+  /**
+   * Called once at boot. Sweeps what has aged out, and offers what is left.
+   *
+   * Transcribing an orphan silently would spend quota the user never asked to
+   * spend, on audio they may have abandoned on purpose.
+   */
+  async scanBuffer(): Promise<void> {
+    const store = this.dependencies.store;
+    if (store === undefined) {
+      return;
+    }
+    await store.sweep(Date.now()).catch(() => undefined);
+    const recordings = await store.listRecordings().catch(() => []);
+    const newest = [...recordings].sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (newest !== undefined && newest.bytes > 0) {
+      this.patch({ recoverable: newest });
+    }
+  }
+
+  recoverBuffered(): Promise<DictationResult> {
+    const recoverable = this.snapshot.recoverable;
+    const store = this.dependencies.store;
+    if (recoverable === null || store === undefined || this.activeStop || this.activeRewrite) {
+      return Promise.reject(this.invalidTransition("There is no unfinished recording to transcribe."));
+    }
+    this.patch({ recoverable: null });
+    return this.track(
+      (async () => {
+        const audio = await store.loadRecording(recoverable.id);
+        if (audio === null) {
+          throw this.invalidTransition("That recording could not be read.");
+        }
+        this.heldAudio = audio;
+        return this.runDelivery(audio);
+      })(),
+    );
+  }
+
+  async discardBuffered(): Promise<void> {
+    const recoverable = this.snapshot.recoverable;
+    this.patch({ recoverable: null });
+    if (recoverable !== null) {
+      await this.dependencies.store?.dropRecording(recoverable.id).catch(() => undefined);
+    }
   }
 
   get state(): DictationState {
@@ -263,14 +313,19 @@ export class DictationFlowService implements DictationFlow {
         }
       }
 
-      // Delivered. The audio has done its job and must not outlive it.
+      // Delivered. The audio has done its job and must not outlive it: this
+      // deletion is what keeps "in-flight audio only" an honest claim.
       this.heldAudio = null;
+      void this.dependencies.store?.dropRecording(audio.id).catch(() => undefined);
       const result: DictationResult = {
         rawText: transcription.text,
         finalText,
         cleanupApplied,
         cleanupFailed,
       };
+      if (settings.historyEnabled) {
+        void this.dependencies.store?.saveTranscript(finalText).catch(() => undefined);
+      }
       this.patch({ state: "completed", result, error: null, canRetry: false });
       return result;
     } catch (error) {
@@ -350,7 +405,8 @@ export class DictationFlowService implements DictationFlow {
       next.result === this.snapshot.result &&
       next.error === this.snapshot.error &&
       next.notice === this.snapshot.notice &&
-      next.canRetry === this.snapshot.canRetry
+      next.canRetry === this.snapshot.canRetry &&
+      next.recoverable === this.snapshot.recoverable
     ) {
       return;
     }

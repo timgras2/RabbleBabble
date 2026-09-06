@@ -28,6 +28,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
   private recordedBytes = 0;
   private mimeType = "";
   private startedAtMs = 0;
+  private recordingId = "";
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private stopResolve: ((recording: AudioRecording) => void) | null = null;
   private stopReject: ((error: unknown) => void) | null = null;
@@ -119,6 +120,8 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.limitReached = null;
     this.pendingRecording = null;
     this.startedAtMs = Date.now();
+    this.recordingId = crypto.randomUUID();
+    this.toSink(() => this.options.sink?.open(this.recordingId, this.mimeType));
     this.bindRecorderEvents();
     this.setState("recording");
     try {
@@ -290,6 +293,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
       if (event.data.size > 0) {
         this.chunks.push(event.data);
         this.recordedBytes += event.data.size;
+        this.toSink(() => this.options.sink?.write(this.recordingId, event.data));
         if (this.recordedBytes > this.options.maxBytes && this.limitReached === null) {
           this.limitReached = "bytes";
           this.finishStop();
@@ -343,7 +347,14 @@ export class MediaRecorderAdapter implements AudioRecorder {
     const limitReached = this.limitReached;
     const cancelResolve = this.cancelResolve;
     const hasConsumer = Boolean(resolve || reject || cancelResolve);
-    const recording: AudioRecording = { blob, mimeType, durationMs, endedBy: endCause(limitReached) };
+    const recording: AudioRecording = {
+      id: this.recordingId,
+      blob,
+      mimeType,
+      durationMs,
+      endedBy: endCause(limitReached),
+    };
+    this.toSink(() => this.options.sink?.close(this.recordingId));
 
     this.stopResolve = null;
     this.stopReject = null;
@@ -444,6 +455,15 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.mediaRecorder = null;
     this.chunks = [];
     this.recordedBytes = 0;
+  }
+
+  /** The buffer is an enhancement. A store that throws must not lose a take. */
+  private toSink(work: () => void): void {
+    try {
+      work();
+    } catch {
+      // Deliberately silent: nothing here is worth interrupting a recording.
+    }
   }
 
   private setState(state: RecordingState): void {

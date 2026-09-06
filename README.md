@@ -36,9 +36,25 @@ product.
 
 Audio and transcripts are never persisted server-side. The Worker is a
 pass-through proxy, not a data store: it keeps an email address, a session
-hash, and numeric usage counters, nothing else. In the bring-your-own-key
-build the browser talks to Groq directly and the key stays in `localStorage` on
-that device.
+hash, numeric usage counters and your personal vocabulary, nothing else.
+`DELETE /v1/me`, wired to Delete account in Settings, erases all of it.
+
+On the device, audio never leaves your phone except to be transcribed, and
+in-flight audio is deleted as soon as a transcript comes back. It is buffered
+to IndexedDB while a recording is under way so a reload, a crash or a failed
+upload cannot take your words with it -- which is the whole point -- and swept
+after 24 hours or three recordings, whichever comes first.
+
+On-device transcript history is off by default. Switching it on keeps the last
+few transcripts in that same IndexedDB store, on that device only, never
+synced, clearable in one tap.
+
+In the bring-your-own-key build the browser talks to Groq directly and the key
+stays in `localStorage` on that device.
+
+One thing worth stating plainly: the IP pepper protects what is in D1. It does
+not reach Cloudflare's own platform logs, which carry the unpeppered client IP
+and are outside anything this application can delete.
 
 ## Development
 

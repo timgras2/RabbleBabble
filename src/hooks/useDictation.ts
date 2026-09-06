@@ -8,6 +8,7 @@ const IDLE: DictationSnapshot = {
   error: null,
   notice: null,
   canRetry: false,
+  recoverable: null,
 };
 
 /**
@@ -33,6 +34,8 @@ export function useDictation(services: AppServices) {
     start: () => flow.start(),
     stop: () => flow.stop(),
     retryUpload: () => flow.retryUpload(),
+    recoverBuffered: () => flow.recoverBuffered(),
+    discardBuffered: () => flow.discardBuffered(),
     rewrite: (instruction: string) => flow.rewrite(instruction),
     cancel: () => flow.cancel(),
   };

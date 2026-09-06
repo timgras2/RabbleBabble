@@ -8,12 +8,21 @@ import { BackendClient } from "../platform/inference/backendClient";
 import { GroqHttpClient } from "../platform/inference/groqClient";
 import type { InferenceClient } from "../platform/inference/types";
 import { LocalStorageSettings } from "../platform/storage/localStorageSettings";
+import { IdbStore } from "../platform/store/idbStore";
 import { DictationFlowService } from "../services/dictationFlow";
 import type { AppServices } from "./types";
 
 export function createAppServices(): AppServices {
   const settings = new LocalStorageSettings();
-  const recorder = new MediaRecorderAdapter();
+  const store = new IdbStore();
+  const recorder = new MediaRecorderAdapter({
+    // Mono at a modest opus bitrate: several times smaller on mobile data,
+    // and Whisper does not want the stereo image or the extra bits anyway.
+    // The adapter was previously constructed with no options at all.
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    audioBitsPerSecond: 32_000,
+    sink: store,
+  });
   const clipboard = new BrowserClipboard();
 
   let session: AuthSession;
@@ -41,6 +50,10 @@ export function createAppServices(): AppServices {
     inference = new GroqHttpClient({ apiKey: () => settings.get().groqApiKey });
   }
 
-  const dictation = new DictationFlowService({ recorder, settings, inference });
-  return { settings, recorder, inference, session, clipboard, dictation };
+  const dictation = new DictationFlowService({ recorder, settings, inference, store });
+  // Explicit here rather than in a constructor, like the session refresh above:
+  // the composition root is where "start touching the device" belongs.
+  void dictation.scanBuffer();
+
+  return { settings, recorder, inference, session, clipboard, dictation, store };
 }

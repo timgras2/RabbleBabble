@@ -38,7 +38,7 @@ function recorder(): FakeRecorder {
     },
     start: vi.fn(async () => { states.push("recording"); }),
     stop: vi.fn(async (): Promise<AudioRecording> => ({
-      blob: new Blob(["audio"], { type: "audio/webm" }),
+      id: "test-recording", blob: new Blob(["audio"], { type: "audio/webm" }),
       mimeType: "audio/webm",
       durationMs: 1000,
       endedBy: fake.endedBy,

@@ -282,6 +282,7 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
 .notice--error { color: var(--danger-ink); background: var(--danger-bg); border: 1px solid var(--danger-border); }
 /* Quiet, and above the fold rather than over the content: an update is never
    more important than the words on the screen. */
+.notice__actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .danger-zone__confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .update-banner { width: 100%; max-width: 700px; margin: 0 auto 12px; padding: 9px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-alt); color: var(--ink-3); font-size: 12px; }
 .notice--info { color: var(--ink-3); background: var(--surface-alt); border: 1px solid var(--border-strong); }
