@@ -16,11 +16,44 @@ import process from "node:process";
  * Usage:
  *   node scripts/invite.mjs                  # local database
  *   node scripts/invite.mjs --remote         # production
+ *   node scripts/invite.mjs --staging        # the staging Worker's database
  *   node scripts/invite.mjs --uses 3 --label "family"
  */
 
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I, L, O, 0 or 1
-const DATABASE = "rabblebabble";
+
+/**
+ * Which deployment to act on.
+ *
+ * Staging is a separate Worker with a separate D1 database, so an admin
+ * command that cannot reach it means staging cannot be signed into -- and a
+ * staging environment nobody can sign into is not a staging environment.
+ */
+function target() {
+  if (process.argv.includes("--staging")) {
+    return { database: "rabblebabble-staging", env: ["--env", "staging"], label: "staging" };
+  }
+  const remote = process.argv.includes("--remote");
+  return { database: "rabblebabble", env: [], label: remote ? "production" : "local" };
+}
+
+
+
+/**
+ * SQL string literals, the only way `wrangler d1 execute` allows.
+ *
+ * It takes `--command` or `--file` and has no parameter binding at all, so
+ * "just use bound parameters" is not on the table. Two defences instead:
+ * every value is validated against a strict pattern before it gets here, and
+ * quoting still doubles any single quote. Belt and braces, because the failure
+ * mode is SQL injection into an admin command run against production.
+ */
+function sqlString(value) {
+  if (typeof value !== "string") {
+    throw new TypeError("sqlString expects a string");
+  }
+  return `'${value.replaceAll("'", "''")}'`;
+}
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -46,12 +79,20 @@ function unbiasedIndex(range) {
   return byte % range;
 }
 
-const remote = process.argv.includes("--remote");
+const remote = process.argv.includes("--remote") || process.argv.includes("--staging");
+const { database: DATABASE, env: ENV_FLAGS, label: TARGET } = target();
 const maxUses = Number(argument("uses", "1"));
 const label = argument("label", "invite");
 
 if (!Number.isSafeInteger(maxUses) || maxUses < 1) {
   console.error("--uses must be a positive integer");
+  process.exit(2);
+}
+
+// A label is free text the operator chose, so it is the one value here that
+// could carry anything. Restricted to something a human would actually type.
+if (!/^[\w .,'()-]{1,60}$/.test(label)) {
+  console.error("--label must be 1-60 characters of letters, digits, spaces or . , ' ( ) -");
   process.exit(2);
 }
 
@@ -61,11 +102,12 @@ const normalised = code.replaceAll("-", "").toUpperCase();
 const hash = createHash("sha256").update(normalised).digest("hex");
 const now = Math.floor(Date.now() / 1000);
 
-// Parameterised rather than interpolated: hand-doubling quotes on a
-// caller-supplied label is one review away from being wrong.
+// `wrangler d1 execute` has no parameter binding, so this interpolates -- but
+// only after the label has been validated above, and the hash is 64 hex
+// characters by construction. sqlString still doubles any quote.
 const sql =
   "INSERT INTO invite_codes (code_hash, label, max_uses, uses, expires_at, created_at, disabled_at) " +
-  "VALUES (?1, ?2, ?3, 0, NULL, ?4, NULL);";
+  `VALUES (${sqlString(hash)}, ${sqlString(label)}, ${maxUses}, 0, NULL, ${now}, NULL);`;
 
 // Written to a file rather than passed with --command: the shell needed to
 // resolve npx on Windows would otherwise word-split the SQL.
@@ -81,17 +123,10 @@ try {
       "d1",
       "execute",
       DATABASE,
+      ...ENV_FLAGS,
       remote ? "--remote" : "--local",
       "--file",
       JSON.stringify(sqlPath),
-      "--param",
-      JSON.stringify(hash),
-      "--param",
-      JSON.stringify(label),
-      "--param",
-      String(maxUses),
-      "--param",
-      String(now),
     ],
     { stdio: "inherit", shell: true },
   );
@@ -101,5 +136,5 @@ try {
 
 console.log("");
 console.log(`Invite code: ${code}`);
-console.log(`Uses: ${maxUses}   Target: ${remote ? "production" : "local"}`);
+console.log(`Uses: ${maxUses}   Target: ${TARGET}`);
 console.log("This is the only time it is shown. The database stores only its hash.");

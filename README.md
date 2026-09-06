@@ -88,9 +88,14 @@ and none can be used by accident. To exercise real sending on purpose, use
 Resend.
 
 ```text
-npm run invite:new               # mint an invite code
-npm run user --show you@example.com   # inspect an account
-npm run user --unsuspend you@example.com --remote   # the recovery path
+# Admin commands. Called directly rather than through `npm run`, because npm
+# eats a leading --flag before the script ever sees it.
+node scripts/invite.mjs                              # mint an invite code (local)
+node scripts/invite.mjs --remote                     # ...against production
+node scripts/invite.mjs --staging                    # ...against staging
+node scripts/user.mjs --show you@example.com         # inspect an account
+node scripts/user.mjs --unsuspend you@example.com --remote   # the recovery path
+
 npm run smoke                    # 22 end-to-end checks against the running Worker
 npm run smoke:prod               # the read-only subset, safe against production
 ```
