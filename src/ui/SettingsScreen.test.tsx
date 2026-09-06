@@ -29,3 +29,30 @@ describe("SettingsScreen", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeTruthy();
   });
 });
+
+describe("SettingsScreen features", () => {
+  it("saves the personal vocabulary when the field is left", async () => {
+    const settings = fakeSettings({ vocabulary: "" });
+    render(<SettingsScreen services={testServices({ settings })} />);
+
+    await userEvent.type(screen.getByLabelText(/personal vocabulary/i), "  Aisling, EBITDA  ");
+    await userEvent.tab();
+
+    await waitFor(() => expect(settings.get().vocabulary).toBe("Aisling, EBITDA"));
+  });
+
+  it("keeps on-device history off unless it is asked for", async () => {
+    const settings = fakeSettings();
+    render(<SettingsScreen services={testServices({ settings })} />);
+
+    // The default carries the identity, so this is the assertion that matters.
+    expect(settings.get().historyEnabled).toBe(false);
+    expect(screen.queryByRole("button", { name: /clear history/i })).toBeNull();
+
+    await userEvent.click(screen.getByRole("switch", { name: /keep transcripts on this device/i }));
+
+    expect(settings.get().historyEnabled).toBe(true);
+    // And it is clearable in one tap the moment it is on.
+    expect(screen.getByRole("button", { name: /clear history/i })).toBeTruthy();
+  });
+});

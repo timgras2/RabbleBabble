@@ -38,6 +38,11 @@ export class LocalAuthSession implements AuthSession {
     return Promise.reject(unavailable());
   }
 
+  saveVocabulary(): Promise<void> {
+    // Nowhere to sync it to; the local Settings copy is the only copy here.
+    return Promise.resolve();
+  }
+
   deleteAccount(): Promise<void> {
     return Promise.reject(unavailable());
   }

@@ -25,5 +25,12 @@ export const MAX_INSTRUCTION_CHARS = 2_000;
  */
 export const MAX_JSON_BODY_BYTES = 262_144;
 
+/**
+ * Longest personal vocabulary accepted. Whisper's `prompt` parameter is only
+ * a biasing hint and the model ignores most of anything longer, so this is
+ * generous rather than restrictive.
+ */
+export const MAX_VOCABULARY_CHARS = 800;
+
 /** Largest JSON body the Worker will read on an auth route. */
 export const MAX_AUTH_BODY_BYTES = 4_096;

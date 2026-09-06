@@ -60,6 +60,8 @@ export class BackendClient implements InferenceClient {
   async transcribe(request: {
     readonly audio: AudioRecording;
     readonly language?: string;
+    /** Accepted and ignored: the Worker reads it from the session row. */
+    readonly vocabulary?: string;
     readonly signal?: AbortSignal;
   }): Promise<TranscriptionResponse> {
     // Checked before upload as well as on the server: this saves a doomed

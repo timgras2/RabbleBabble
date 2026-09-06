@@ -5,6 +5,8 @@ export type AuthStatus = "unknown" | "signed-in" | "signed-out";
 
 export interface AuthAccount {
   readonly email: string;
+  /** As the server holds it; the local copy in Settings is the edit buffer. */
+  readonly vocabulary: string;
 }
 
 export interface QuotaSnapshot {
@@ -65,6 +67,9 @@ export interface AuthSession {
    * Always sends a body: a missing one is indistinguishable from a false.
    */
   signOut(options?: { readonly allDevices?: boolean }): Promise<void>;
+
+  /** Saves the personal vocabulary the Worker will bias transcription with. */
+  saveVocabulary(vocabulary: string): Promise<void>;
 
   /**
    * Erases the account and everything that cascades from it, then signs out.

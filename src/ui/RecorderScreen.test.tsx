@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdapterError } from "../platform/errors";
-import { fakeInference, fakeRecorder, testServices } from "../test/services";
+import { fakeClipboard, fakeInference, fakeRecorder, testServices } from "../test/services";
 import { RecorderScreen } from "./RecorderScreen";
 
 /**
@@ -100,5 +100,39 @@ describe("RecorderScreen", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("transcript actions", () => {
+  it("applies a rewrite preset in one tap, with no typing", async () => {
+    const rewrite = vi.fn(async () => ({ text: "Tightened." }));
+    renderRecorder(testServices({ inference: fakeInference({ rewrite }) }));
+
+    await userEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    await userEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /rewrite transcript/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Tighten it up" }));
+
+    expect(rewrite).toHaveBeenCalledWith(expect.objectContaining({ instruction: expect.stringMatching(/fewer words/i) }));
+    expect(await screen.findByText("Tightened.")).toBeTruthy();
+  });
+
+  it("offers Share only where the platform has a share sheet", async () => {
+    const services = testServices({ clipboard: fakeClipboard({ status: "copied" }, false) });
+    renderRecorder(services);
+    await userEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    await userEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+    await screen.findByRole("button", { name: /copy text/i });
+
+    // A dead Share button is worse than no Share button.
+    expect(screen.queryByRole("button", { name: /share transcript/i })).toBeNull();
+  });
+
+  it("shows Share when navigator.share exists", async () => {
+    renderRecorder(testServices({ clipboard: fakeClipboard({ status: "copied" }, true) }));
+    await userEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    await userEvent.click(screen.getByRole("button", { name: /stop recording/i }));
+
+    expect(await screen.findByRole("button", { name: /share transcript/i })).toBeTruthy();
   });
 });

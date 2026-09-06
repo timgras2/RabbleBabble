@@ -1,4 +1,4 @@
-import { AlertCircle, Check, Clipboard, Info, Pencil, ShieldCheck } from "lucide-react";
+import { AlertCircle, Check, Clipboard, Info, Pencil, Share2, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Ref } from "react";
 import type { AppServices } from "../app/types";
@@ -84,6 +84,17 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
     }
   };
 
+  const applyPreset = async (instruction: string) => {
+    setCopyStatus(null);
+    try {
+      await dictation.rewrite(instruction);
+      setRewriteOpen(false);
+      setRewriteInstruction("");
+    } catch {
+      // The snapshot keeps the previous transcript and carries the error.
+    }
+  };
+
   const applyRewrite = async () => {
     if (!rewriteInstruction.trim()) return;
     setCopyStatus(null);
@@ -110,6 +121,13 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
       await dictation.retryUpload();
     } catch {
       // Same: a second failure updates the same error in the snapshot.
+    }
+  };
+
+  const share = async () => {
+    const result = await services.clipboard.shareText(dictation.result?.finalText ?? "");
+    if (result.status === "unavailable" || result.status === "denied") {
+      setCopyStatus({ kind: "error", message: result.message ?? "Could not share the text." });
     }
   };
 
@@ -262,7 +280,22 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
           )}
           {rewriteOpen ? (
             <form className="rewrite-form" onSubmit={(event) => { event.preventDefault(); void applyRewrite(); }}>
-              <label htmlFor="rewrite-instruction">How should this transcript change?</label>
+              {/* One tap for the four things people actually ask for. They post
+                  the same instruction the textarea does -- no new backend. */}
+              <div className="rewrite-presets">
+                {REWRITE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className="rewrite-preset"
+                    disabled={dictation.state === "rewriting"}
+                    onClick={() => void applyPreset(preset.instruction)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <label htmlFor="rewrite-instruction">Or describe the change yourself</label>
               <textarea
                 id="rewrite-instruction"
                 value={rewriteInstruction}
@@ -287,13 +320,22 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
               <Pencil size={16} /> Rewrite transcript
             </button>
           )}
-          <button
-            type="button"
-            className={`copy-button${copyStatus?.kind === "success" ? " copy-button--copied" : ""}`}
-            onClick={copy}
-          >
-            {copyStatus?.kind === "success" ? <><Check size={17} /> Copied</> : <><Clipboard size={17} /> Copy text</>}
-          </button>
+          <div className="result-card__actions">
+            <button
+              type="button"
+              className={`copy-button${copyStatus?.kind === "success" ? " copy-button--copied" : ""}`}
+              onClick={copy}
+            >
+              {copyStatus?.kind === "success" ? <><Check size={17} /> Copied</> : <><Clipboard size={17} /> Copy text</>}
+            </button>
+            {/* Only where the platform actually has a share sheet. Elsewhere
+                Copy is the whole answer, and a dead button is worse than none. */}
+            {services.clipboard.canShare() && (
+              <button type="button" className="share-button" onClick={share} aria-label="Share transcript">
+                <Share2 size={17} />
+              </button>
+            )}
+          </div>
           {copyStatus?.kind === "error" && <div className="copy-status copy-status--error">{copyStatus.message}</div>}
         </section>
       )}
@@ -377,6 +419,13 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
     </main>
   );
 }
+
+const REWRITE_PRESETS = [
+  { label: "Tighten it up", instruction: "Tighten this up. Same meaning, fewer words." },
+  { label: "Bullet points", instruction: "Rewrite this as a short list of bullet points." },
+  { label: "Formal email", instruction: "Rewrite this as a short, polite, formal email." },
+  { label: "Translate to English", instruction: "Translate this into English." },
+] as const;
 
 /** Six seconds under a level normal speech clears easily. */
 const SILENCE_LEVEL = 0.04;

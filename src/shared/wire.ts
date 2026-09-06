@@ -44,7 +44,12 @@ export interface LimitsBody {
 }
 
 export interface MeResponse {
-  readonly user: { readonly id: string; readonly email: string };
+  readonly user: {
+    readonly id: string;
+    readonly email: string;
+    /** Names, jargon and abbreviations, biased into transcription. */
+    readonly vocabulary: string;
+  };
   readonly quota: QuotaBody;
   readonly limits: LimitsBody;
   readonly service: { readonly available: boolean; readonly reason?: "global-spend-cap" };
@@ -69,6 +74,10 @@ export interface RewriteRequest {
 export interface TextResponse {
   readonly text: string;
   readonly quota?: QuotaBody;
+}
+
+export interface UpdateMeRequest {
+  readonly vocabulary: string;
 }
 
 export interface RequestLinkRequest {

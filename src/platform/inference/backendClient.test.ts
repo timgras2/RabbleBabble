@@ -4,7 +4,7 @@ import { BackendClient } from "./backendClient";
 
 const SIGNED_IN: AuthState = {
   status: "signed-in",
-  account: { email: "user@example.com" },
+  account: { email: "user@example.com", vocabulary: "" },
   quota: null,
   checking: false,
   error: null,
@@ -17,6 +17,7 @@ function fakeSession(overrides: Partial<AuthSession> = {}, state: AuthState = SI
     requireSignedIn: vi.fn(() => undefined),
     requestMagicLink: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
+    saveVocabulary: vi.fn(async () => undefined),
     deleteAccount: vi.fn(async () => undefined),
     markSignedOut: vi.fn(),
     updateQuota: vi.fn(),

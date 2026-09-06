@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // The default carries the identity. Anything else and "nothing is saved as
   // history" would need an asterisk.
   historyEnabled: false,
+  vocabulary: "",
 };
 
 export class LocalStorageSettings implements SettingsRepository {
@@ -35,6 +36,7 @@ export class LocalStorageSettings implements SettingsRepository {
       cleanupEnabled: patch.cleanupEnabled ?? this.settings.cleanupEnabled,
       language: patch.language ?? this.settings.language,
       historyEnabled: patch.historyEnabled ?? this.settings.historyEnabled,
+      vocabulary: patch.vocabulary ?? this.settings.vocabulary,
     };
     this.persist();
     this.notify();
@@ -97,6 +99,7 @@ export class LocalStorageSettings implements SettingsRepository {
             : DEFAULT_SETTINGS.cleanupEnabled,
         language: typeof value.language === "string" ? value.language : "",
         historyEnabled: value.historyEnabled === true,
+        vocabulary: typeof value.vocabulary === "string" ? value.vocabulary : "",
       };
     } catch {
       return null;

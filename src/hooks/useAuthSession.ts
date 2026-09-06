@@ -23,6 +23,7 @@ export function useAuthSession(services: AppServices) {
     requestMagicLink: session.requestMagicLink.bind(session),
     signOut: (options?: { readonly allDevices?: boolean }) => session.signOut(options),
     deleteAccount: () => session.deleteAccount(),
+    saveVocabulary: (vocabulary: string) => session.saveVocabulary(vocabulary),
   };
 }
 

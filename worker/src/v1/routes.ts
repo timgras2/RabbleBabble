@@ -4,6 +4,7 @@ import {
   MAX_INSTRUCTION_CHARS,
   MAX_JSON_BODY_BYTES,
   MAX_TEXT_CHARS,
+  MAX_VOCABULARY_CHARS,
 } from "../../../src/shared/limits";
 import { buildCleanupMessages, buildRewriteMessages } from "../../../src/shared/prompts";
 import { LANGUAGE_HEADER, type MeResponse, type TextResponse, type TranscribeResponse } from "../../../src/shared/wire";
@@ -37,7 +38,7 @@ export function registerV1Routes(app: App): void {
     const available = await isServiceAvailable(db, day, config.globalDailySpendMicros);
 
     const body: MeResponse = {
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, vocabulary: user.vocabulary },
       quota: {
         day,
         audioSecondsUsed: usage.audio_seconds,
@@ -58,6 +59,28 @@ export function registerV1Routes(app: App): void {
     };
 
     return c.json(body);
+  });
+
+  /**
+   * The one piece of user data worth storing server-side.
+   *
+   * Validated here rather than trusted, and it reaches Groq only as the
+   * transcription `prompt` -- a biasing hint, not an instruction channel. It
+   * must never reach the chat models, where the JSON.stringify framing in
+   * src/shared/prompts.ts is what keeps a hostile transcript inert.
+   */
+  app.patch("/v1/me", async (c) => {
+    const user = await authenticate(c);
+    const { db } = c.get("deps");
+
+    const payload = await readJsonBody(c.req.raw, MAX_JSON_BODY_BYTES);
+    const vocabulary = readString(payload, "vocabulary").trim();
+    if (vocabulary.length > MAX_VOCABULARY_CHARS) {
+      throw payloadTooLarge("That vocabulary list is too long.", "rewrite-too-large");
+    }
+
+    await db.prepare("UPDATE users SET vocabulary = ?1 WHERE id = ?2").bind(vocabulary, user.id).run();
+    return c.json({ vocabulary });
   });
 
   /**
@@ -109,6 +132,8 @@ export function registerV1Routes(app: App): void {
         mimeType,
         filename: audioFilename(mimeType),
         ...(LANGUAGE_PATTERN.test(language) ? { language } : {}),
+        // From the session row, never from the request body.
+        ...(user.vocabulary === "" ? {} : { prompt: user.vocabulary }),
       });
 
       // Kept apart on purpose: `measured` is what Groq actually reported, and

@@ -10,6 +10,12 @@ export interface Settings {
    * target app crashed, my words are gone", not a feed.
    */
   readonly historyEnabled: boolean;
+  /**
+   * Names, jargon and abbreviations, biased into transcription. In service
+   * builds this is the local edit buffer; the server holds the copy that
+   * actually reaches Groq, because the client may not influence that form.
+   */
+  readonly vocabulary: string;
 }
 
 export type SettingsPatch = Partial<Settings>;

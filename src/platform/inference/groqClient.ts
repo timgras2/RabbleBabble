@@ -63,6 +63,7 @@ export class GroqHttpClient implements InferenceClient {
   async transcribe(request: {
     readonly audio: AudioRecording;
     readonly language?: string;
+    readonly vocabulary?: string;
     readonly signal?: AbortSignal;
   }): Promise<TranscriptionResponse> {
     const apiKey = this.apiKey();
@@ -78,6 +79,9 @@ export class GroqHttpClient implements InferenceClient {
     form.append("file", request.audio.blob, filenameForMime(request.audio.mimeType));
     if (request.language?.trim()) {
       form.append("language", request.language.trim());
+    }
+    if (request.vocabulary?.trim()) {
+      form.append("prompt", request.vocabulary.trim());
     }
 
     const response = await this.http.send(`${this.baseUrl}/audio/transcriptions`, {

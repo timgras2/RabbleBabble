@@ -1,9 +1,12 @@
-import { Check, Eye, EyeOff, KeyRound, Languages, Save, Trash2 } from "lucide-react";
+import { BookText, Check, Eye, EyeOff, History, KeyRound, Languages, Save, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import { SERVICE_MODE } from "../app/mode";
 import type { AppServices } from "../app/types";
 import { useSettings } from "../hooks/useSettings";
+import { useAuthSession } from "../hooks/useAuthSession";
+import { MAX_VOCABULARY_CHARS } from "../shared/limits";
 import { AccountPanel } from "./settings/AccountPanel";
+import { HistoryList } from "./settings/HistoryList";
 
 interface SettingsScreenProps {
   readonly services: AppServices;
@@ -14,8 +17,14 @@ const LANGUAGE_SAVE_DELAY_MS = 600;
 
 export function SettingsScreen({ services, focusRef }: SettingsScreenProps) {
   const { settings, update, clearApiKey } = useSettings(services);
+  const auth = useAuthSession(services);
   const [apiKey, setApiKey] = useState(settings.groqApiKey);
   const [language, setLanguage] = useState(settings.language);
+  // Seeded from the server copy on first render, which is the authoritative
+  // one: it is what the Worker actually biases transcription with.
+  const [vocabulary, setVocabulary] = useState(
+    SERVICE_MODE ? (auth.account?.vocabulary ?? settings.vocabulary) : settings.vocabulary,
+  );
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -54,6 +63,19 @@ export function SettingsScreen({ services, focusRef }: SettingsScreenProps) {
       clearTimeout(languageTimer.current);
     }
   }, []);
+
+  // Free text again, so it settles before it is written -- but here the write
+  // also has to reach the server, so it is only ever sent on blur.
+  const saveVocabulary = () => {
+    const next = vocabulary.trim().slice(0, MAX_VOCABULARY_CHARS);
+    if (next === settings.vocabulary && !SERVICE_MODE) {
+      return;
+    }
+    update({ vocabulary: next });
+    if (SERVICE_MODE && next !== auth.account?.vocabulary) {
+      void auth.saveVocabulary(next);
+    }
+  };
 
   const saveApiKey = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -116,6 +138,65 @@ export function SettingsScreen({ services, focusRef }: SettingsScreenProps) {
           />
           <small>Leave blank to let Whisper detect the language. Saved as you type.</small>
         </div>
+
+        {/* The highest-value feature in the plan, and one form field: dictation
+            apps live or die on proper nouns. It reaches Groq as Whisper's
+            `prompt` -- a biasing hint -- and never the chat models, where the
+            JSON.stringify framing in shared/prompts.ts is what keeps a hostile
+            transcript inert. */}
+        <div className="field-group">
+          <label htmlFor="vocabulary"><BookText size={16} /> Personal vocabulary <span>(optional)</span></label>
+          <textarea
+            id="vocabulary"
+            value={vocabulary}
+            onChange={(event) => setVocabulary(event.target.value)}
+            onBlur={saveVocabulary}
+            maxLength={MAX_VOCABULARY_CHARS}
+            rows={3}
+            placeholder="Names, jargon and abbreviations you use: Aisling, Kubernetes, RabbleBabble, EBITDA"
+          />
+          <small>
+            {vocabulary.length}/{MAX_VOCABULARY_CHARS} - helps transcription get proper nouns right.
+          </small>
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <strong>Keep transcripts on this device</strong>
+            <span>
+              {settings.historyEnabled
+                ? "On. The last 20 transcripts are stored on this device only, never synced."
+                : "Off. Nothing is kept once you leave the screen."}
+            </span>
+          </div>
+          <button
+            type="button"
+            className={`toggle${settings.historyEnabled ? " toggle--on" : ""}`}
+            role="switch"
+            aria-checked={settings.historyEnabled}
+            aria-label="Keep transcripts on this device"
+            onClick={() => update({ historyEnabled: !settings.historyEnabled })}
+          >
+            <span />
+          </button>
+        </div>
+
+        {/* A list, and only a list. The use case is "I copied it, the target app
+            crashed, my words are gone" -- if this ever grows search or an
+            editing UI it has become a different product. */}
+        {settings.historyEnabled && <HistoryList services={services} />}
+
+        {settings.historyEnabled && (
+          <div className="danger-zone">
+            <div>
+              <strong>Clear saved transcripts</strong>
+              <span>Removes every transcript stored on this device.</span>
+            </div>
+            <button type="button" className="danger-button" onClick={() => void services.store.clearTranscripts()}>
+              <History size={16} /> Clear history
+            </button>
+          </div>
+        )}
 
         <div className="model-note"><span>Cleanup model</span><strong>openai/gpt-oss-20b</strong><small>Fixed for v1</small></div>
 

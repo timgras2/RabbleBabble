@@ -128,6 +128,22 @@ export class HttpAuthSession implements AuthSession {
     this.markSignedOut();
   }
 
+  async saveVocabulary(vocabulary: string): Promise<void> {
+    await this.http.send(
+      `${this.baseUrl}/v1/me`,
+      {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", [CLIENT_HEADER]: CLIENT_HEADER_VALUE },
+        body: JSON.stringify({ vocabulary }),
+      },
+      { timeoutMs: this.timeoutMs, maxAttempts: 1 },
+    );
+    if (this.state.account !== null) {
+      this.setState({ ...this.state, account: { ...this.state.account, vocabulary } });
+    }
+  }
+
   async deleteAccount(): Promise<void> {
     await this.http.send(
       `${this.baseUrl}/v1/me`,
@@ -174,7 +190,7 @@ export class HttpAuthSession implements AuthSession {
       const payload = (await this.http.readJson(response)) as MeResponse;
       this.setState({
         status: "signed-in",
-        account: { email: payload.user.email },
+        account: { email: payload.user.email, vocabulary: payload.user.vocabulary ?? "" },
         quota: toQuota(payload),
         checking: false,
         error: null,

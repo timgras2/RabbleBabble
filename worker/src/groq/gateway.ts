@@ -64,6 +64,12 @@ export class GroqGateway {
     readonly mimeType: string;
     readonly filename: string;
     readonly language?: string;
+    /**
+     * Whisper's biasing hint, from the user's saved vocabulary. Read from the
+     * session row rather than from the request, so it is still true that a
+     * client cannot influence a single field of this form.
+     */
+    readonly prompt?: string;
   }): Promise<TranscriptionResult> {
     const form = new FormData();
     form.append("model", TRANSCRIPTION_MODEL);
@@ -74,6 +80,9 @@ export class GroqGateway {
     form.append("temperature", "0");
     if (request.language) {
       form.append("language", request.language);
+    }
+    if (request.prompt) {
+      form.append("prompt", request.prompt);
     }
 
     const payload = await this.send("/audio/transcriptions", { body: form }, {

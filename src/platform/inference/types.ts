@@ -44,6 +44,13 @@ export interface InferenceClient {
   transcribe(request: {
     readonly audio: AudioRecording;
     readonly language?: string;
+    /**
+     * Whisper's biasing hint. Honoured by the bring-your-own-key adapter, and
+     * deliberately IGNORED by the backend adapter: the Worker reads the saved
+     * vocabulary from the session row, so the client still cannot influence a
+     * single field of the Groq form.
+     */
+    readonly vocabulary?: string;
     readonly signal?: AbortSignal;
   }): Promise<TranscriptionResponse>;
 

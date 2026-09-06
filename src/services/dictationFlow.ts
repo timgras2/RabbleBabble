@@ -289,6 +289,7 @@ export class DictationFlowService implements DictationFlow {
       const transcription = await this.dependencies.inference.transcribe({
         audio,
         language: settings.language,
+        vocabulary: settings.vocabulary,
         signal: controller.signal,
       });
       this.throwIfCancelled(controller);

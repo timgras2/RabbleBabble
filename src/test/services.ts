@@ -94,7 +94,7 @@ export function fakeSettings(patch: Partial<Settings> = {}): SettingsRepository 
 
 const SIGNED_IN: AuthState = {
   status: "signed-in",
-  account: { email: "user@example.com" },
+  account: { email: "user@example.com", vocabulary: "" },
   quota: null,
   checking: false,
   error: null,
@@ -107,6 +107,7 @@ export function fakeSession(state: AuthState = SIGNED_IN): AuthSession {
     requireSignedIn: () => undefined,
     requestMagicLink: async () => undefined,
     signOut: async () => undefined,
+    saveVocabulary: async () => undefined,
     deleteAccount: async () => undefined,
     markSignedOut: () => undefined,
     updateQuota: () => undefined,
@@ -114,8 +115,15 @@ export function fakeSession(state: AuthState = SIGNED_IN): AuthSession {
   };
 }
 
-export function fakeClipboard(result: ClipboardResult = { status: "copied" }): ClipboardAdapter {
-  return { writeText: async () => result };
+export function fakeClipboard(
+  result: ClipboardResult = { status: "copied" },
+  shareable = false,
+): ClipboardAdapter {
+  return {
+    writeText: async () => result,
+    canShare: () => shareable,
+    shareText: async () => result,
+  };
 }
 
 export function fakeInference(overrides: Partial<InferenceClient> = {}): InferenceClient {

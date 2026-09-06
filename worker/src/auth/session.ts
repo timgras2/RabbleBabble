@@ -20,6 +20,7 @@ export interface SessionUser {
   readonly email: string;
   readonly status: string;
   readonly audioSecondsOverride: number | null;
+  readonly vocabulary: string;
 }
 
 export interface IssuedSession {
@@ -54,7 +55,7 @@ export async function readSession(
 ): Promise<SessionUser | null> {
   const row = await db
     .prepare(
-      `SELECT u.id, u.email, u.status, u.audio_seconds_override, s.last_seen_at
+      `SELECT u.id, u.email, u.status, u.audio_seconds_override, u.vocabulary, s.last_seen_at
          FROM sessions s
          JOIN users u ON u.id = s.user_id
         WHERE s.session_hash = ?1 AND s.expires_at > ?2`,
@@ -65,6 +66,7 @@ export async function readSession(
       email: string;
       status: string;
       audio_seconds_override: number | null;
+      vocabulary: string | null;
       last_seen_at: number;
     }>();
 
@@ -77,6 +79,7 @@ export async function readSession(
     email: row.email,
     status: row.status,
     audioSecondsOverride: row.audio_seconds_override,
+    vocabulary: row.vocabulary ?? "",
   };
 }
 
