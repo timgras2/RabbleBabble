@@ -106,7 +106,7 @@
 				{
 					"binding": "DB",
 					"database_name": "rabblebabble-staging",
-					"database_id": "REPLACE_WITH_STAGING_DATABASE_ID",
+					"database_id": "6dc0e4ff-946c-45e5-9389-cef91a631d01",
 					"migrations_dir": "worker/migrations"
 				}
 			],
@@ -114,7 +114,7 @@
 				// The one value that must differ, and the one the same-site guard
 				// and every magic link are built from. Fill in the real
 				// workers.dev hostname after the first deploy prints it.
-				"APP_ORIGIN": "https://rabblebabble-staging.workers.dev",
+				"APP_ORIGIN": "https://rabblebabble-staging.rabblebabble.workers.dev",
 				"SIGNUP_MODE": "invite",
 				// Never console: readConfig refuses it off localhost anyway.
 				"EMAIL_MODE": "resend",
