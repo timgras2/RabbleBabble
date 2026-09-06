@@ -1,0 +1,5 @@
+# wrangler writes worker-configuration.d.ts with LF, and `wrangler types
+# --check` compares the file byte for byte. Left to core.autocrlf, a Windows
+# checkout turns it into CRLF and fails that check on a clean clone, before
+# anyone has changed anything.
+worker/worker-configuration.d.ts text eol=lf

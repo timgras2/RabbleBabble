@@ -29,8 +29,18 @@ jobs:
         run: npm ci
 
       # Fails if worker-configuration.d.ts has drifted from wrangler.jsonc.
+      #
+      # `wrangler types` adds one key per secret in .dev.vars, so the check
+      # needs the same secret *names* a developer has - and CI has no
+      # .dev.vars to supply them. .dev.vars.example is that declaration; only
+      # its keys matter here, never its placeholder values. Removed again so
+      # every step below runs against the environment they were written for:
+      # no .dev.vars, and the bindings worker/vitest.config.ts pins itself.
       - name: Check Worker types are current
-        run: npm run worker:types:check
+        run: |
+          cp .dev.vars.example .dev.vars
+          npm run worker:types:check
+          rm .dev.vars
 
       - name: Lint
         run: npm run lint
