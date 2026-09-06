@@ -24,7 +24,23 @@ const RESERVATION_TTL_SECONDS = 600;
 
 /**
  * Budget is taken before the money is spent and settled on what was actually
- * used. Two rules make this safe on D1, which has no interactive transactions:
+ * used.
+ *
+ * **Admission is "is there any allowance left", not "is there room for a whole
+ * worst-case recording".** Every transcription reserves
+ * TRANSCRIBE_RESERVE_SECONDS pessimistically, because the real duration is not
+ * known until Groq answers. Requiring that much headroom on top of everything
+ * already spent made the usable allowance `cap - reserve`: on a 600-second cap
+ * with a 300-second reserve, the user was refused after five minutes while the
+ * app was still showing them "5 of 10 minutes". The reservation is still taken
+ * in full -- it is what bounds how many recordings can be in flight at once --
+ * it just no longer has to fit inside the remaining allowance.
+ *
+ * This is the same rule settle() already follows: an in-flight request is
+ * never killed, the next one is refused instead. The cost is that the last
+ * accepted recording of the day may overshoot the cap by its own length.
+ *
+ * Two rules make this safe on D1, which has no interactive transactions:
  *
  * - Every reservation is an atomic compare-and-increment. SQLite skips the
  *   DO UPDATE when the WHERE is false, and RETURNING only emits rows that were
@@ -44,12 +60,10 @@ export async function reserveTranscription(
   const micros = reserveMicrosForTranscription(audioSeconds, config.priceTranscribeMicrosPerHour);
 
   // SQLite does not evaluate the ON CONFLICT ... WHERE guard on the INSERT
-  // path, so the first request of a day would otherwise slip past a limit it
-  // already exceeds on its own.
-  if (audioSeconds > audioSecondsLimit) {
-    throw quotaExceeded();
-  }
-  if (micros > config.userDailySpendMicros) {
+  // path, so the first request of a day needs its own check. Under the
+  // admission rule below that check is simply "is there an allowance at all",
+  // which an audio_seconds_override of 0 is the only way to fail.
+  if (audioSecondsLimit <= 0 || config.userDailySpendMicros <= 0) {
     throw quotaExceeded();
   }
   if (micros > config.globalDailySpendMicros) {
@@ -69,9 +83,9 @@ export async function reserveTranscription(
          transcribe_calls       = usage_daily.transcribe_calls + 1,
          micros_reserved        = usage_daily.micros_reserved + ?7,
          updated_at             = ?4
-       WHERE usage_daily.audio_seconds + usage_daily.audio_seconds_reserved + ?3 <= ?5
+       WHERE usage_daily.audio_seconds + usage_daily.audio_seconds_reserved < ?5
          AND usage_daily.transcribe_calls + 1 <= ?6
-         AND usage_daily.micros_spent + usage_daily.micros_reserved + ?7 <= ?8
+         AND usage_daily.micros_spent + usage_daily.micros_reserved < ?8
        RETURNING transcribe_calls`,
     )
     .bind(
@@ -105,7 +119,8 @@ export async function reserveChat(
   const day = utcDay(nowSeconds);
   const micros = reserveMicrosForChat(config.priceChatInMicrosPerMTok, config.priceChatOutMicrosPerMTok);
 
-  if (micros > config.userDailySpendMicros) {
+  // Same admission rule as reserveTranscription: any allowance left is enough.
+  if (config.userDailySpendMicros <= 0) {
     throw quotaExceeded();
   }
   if (micros > config.globalDailySpendMicros) {
@@ -125,7 +140,7 @@ export async function reserveChat(
          micros_reserved = usage_daily.micros_reserved + ?5,
          updated_at      = ?3
        WHERE usage_daily.chat_calls + 1 <= ?4
-         AND usage_daily.micros_spent + usage_daily.micros_reserved + ?5 <= ?6
+         AND usage_daily.micros_spent + usage_daily.micros_reserved < ?6
        RETURNING chat_calls`,
     )
     .bind(userId, day, nowSeconds, config.userDailyChatCalls, micros, config.userDailySpendMicros)

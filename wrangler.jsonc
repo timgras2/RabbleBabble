@@ -122,10 +122,13 @@
 				"MAGIC_LINK_TTL_SECONDS": "900",
 				"SESSION_TTL_SECONDS": "7776000",
 				"REQUIRE_SAME_DEVICE_LINK": "true",
-				"USER_DAILY_AUDIO_SECONDS": "600",
-				"USER_DAILY_TRANSCRIBE_CALLS": "20",
-				"USER_DAILY_CHAT_CALLS": "20",
-				"USER_DAILY_SPEND_MICROS": "10000",
+				// Enough to actually run the device pass -- a five-minute auto-stop
+				// plus the interruption, airplane-mode and update cases -- rather
+				// than running out halfway through it. Still a fraction of production.
+				"USER_DAILY_AUDIO_SECONDS": "1800",
+				"USER_DAILY_TRANSCRIBE_CALLS": "60",
+				"USER_DAILY_CHAT_CALLS": "60",
+				"USER_DAILY_SPEND_MICROS": "30000",
 				// A tenth of production. Staging is for proving a deploy works,
 				// not for using the product.
 				"GLOBAL_DAILY_SPEND_MICROS": "100000",

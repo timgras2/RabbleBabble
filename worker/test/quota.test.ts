@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   APP_ORIGIN,
   appHeaders,
@@ -9,6 +9,16 @@ import {
   signIn,
   type TestApp,
 } from "./helpers/app";
+
+async function usageFor(address: string) {
+  return env.DB.prepare(
+    `SELECT u.audio_seconds, u.audio_seconds_reserved
+       FROM usage_daily u JOIN users s ON s.id = u.user_id
+      WHERE s.email = ?1`,
+  )
+    .bind(address)
+    .first<{ audio_seconds: number; audio_seconds_reserved: number }>();
+}
 
 function postAudio(testApp: TestApp, cookie: string) {
   const body = new ArrayBuffer(2_048);
@@ -47,14 +57,32 @@ describe("per-user quota", () => {
   });
 
   /**
-   * SQLite never evaluates an ON CONFLICT ... WHERE guard on the INSERT path.
-   * Without an explicit check in application code, the very first request of a
-   * day would sail past a limit it already exceeds by itself.
+   * This used to assert the opposite, and asserting the opposite was the bug:
+   * a 30-second recording against a 60-second allowance was refused, because
+   * admission demanded room for a whole 300-second worst case on top. The user
+   * could afford the recording they were making and was turned away anyway.
    */
-  it("refuses an over-limit request on the first call of the day", async () => {
+  it("accepts a first recording that fits in the allowance, even below the reserve", async () => {
     const testApp = buildTestApp({ userDailyAudioSeconds: 60, transcribeReserveSeconds: 300 });
     const cookie = await signedIn(testApp, "firstcall@example.com");
     testApp.groqFetch.mockImplementation(alwaysTranscribes("words", 30));
+
+    expect((await postAudio(testApp, cookie)).status).toBe(200);
+    expect(await usageFor("firstcall@example.com")).toMatchObject({ audio_seconds: 30 });
+  });
+
+  /**
+   * SQLite never evaluates an ON CONFLICT ... WHERE guard on the INSERT path,
+   * so the first request of a day still needs an explicit check in application
+   * code. Under the admission rule that check is "is there an allowance at
+   * all", and an audio_seconds_override of 0 is the way to have none.
+   */
+  it("refuses the first call of the day when the allowance is zero", async () => {
+    const testApp = buildTestApp();
+    const cookie = await signedIn(testApp, "noallowance@example.com");
+    await env.DB.prepare("UPDATE users SET audio_seconds_override = 0 WHERE email = ?1")
+      .bind("noallowance@example.com")
+      .run();
 
     const response = await postAudio(testApp, cookie);
 
@@ -180,5 +208,72 @@ describe("burst limits on /v1/*", () => {
 
     expect(statuses.filter((status) => status === 429).length).toBeGreaterThan(0);
     expect(statuses[0]).toBe(200);
+  });
+});
+
+describe("the tail of the daily allowance", () => {
+  /**
+   * Reported from staging: "I've only used 5 of 10 minutes and it says the
+   * limit is reached."
+   *
+   * Every transcription reserves TRANSCRIBE_RESERVE_SECONDS pessimistically --
+   * the recorder's own hard cap, because the real duration is not known until
+   * Groq answers. The admission guard then demanded room for that whole
+   * worst-case recording ON TOP of everything already spent, which makes the
+   * usable allowance `cap - reserve` rather than `cap`. On staging that is
+   * 600 - 300 = exactly the five minutes that got used.
+   *
+   * settle() is already documented as allowed to push the day's total past the
+   * limit -- an in-flight request is never killed, the next one is refused
+   * instead. Admission now follows the same rule: if there is any allowance
+   * left, the recording is accepted.
+   */
+  it("still accepts a recording when some allowance is left, however little", async () => {
+    const testApp = buildTestApp({ userDailyAudioSeconds: 600, transcribeReserveSeconds: 300 });
+    const cookie = await signIn(testApp, "tail@example.com", { inviteCode: await createInvite() });
+
+    // Five minutes and ten seconds of the ten-minute allowance, spent.
+    testApp.groqFetch.mockImplementation(alwaysTranscribes("first", 310));
+    expect((await postAudio(testApp, cookie)).status).toBe(200);
+
+    const usage = await usageFor("tail@example.com");
+    expect(usage?.audio_seconds).toBe(310);
+    expect(usage?.audio_seconds_reserved).toBe(0);
+
+    // 290 seconds remain. The user is told "5 of 10 minutes", so being refused
+    // here is the server disagreeing with what the app just showed them.
+    testApp.groqFetch.mockImplementation(alwaysTranscribes("second", 20));
+    expect((await postAudio(testApp, cookie)).status).toBe(200);
+  });
+
+  it("refuses once the allowance is genuinely gone", async () => {
+    const testApp = buildTestApp({ userDailyAudioSeconds: 600, transcribeReserveSeconds: 300 });
+    const cookie = await signIn(testApp, "spent@example.com", { inviteCode: await createInvite() });
+
+    // Two full-length recordings, each within the implausibility threshold, so
+    // this exercises the quota rather than the abuse check.
+    testApp.groqFetch.mockImplementation(alwaysTranscribes("all of it", 300));
+    expect((await postAudio(testApp, cookie)).status).toBe(200);
+    expect((await postAudio(testApp, cookie)).status).toBe(200);
+
+    // Nothing left, so the next one is the one that pays for the overshoot.
+    expect((await postAudio(testApp, cookie)).status).toBe(429);
+  });
+
+  it("bounds how many recordings can be in flight at once", async () => {
+    const testApp = buildTestApp({ userDailyAudioSeconds: 600, transcribeReserveSeconds: 300 });
+    const cookie = await signIn(testApp, "concurrent@example.com", { inviteCode: await createInvite() });
+
+    // Never settled, so each holds its full pessimistic reservation.
+    testApp.groqFetch.mockImplementation(
+      (() => new Promise(() => undefined)) as unknown as typeof fetch,
+    );
+    void postAudio(testApp, cookie);
+    void postAudio(testApp, cookie);
+    await vi.waitUntil(async () => (await usageFor("concurrent@example.com"))?.audio_seconds_reserved === 600);
+
+    // Two reservations of 300 fill the 600-second cap; a third has no room.
+    testApp.groqFetch.mockImplementation(alwaysTranscribes("third", 10));
+    expect((await postAudio(testApp, cookie)).status).toBe(429);
   });
 });
