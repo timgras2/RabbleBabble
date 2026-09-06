@@ -219,9 +219,14 @@ function openDatabase(): Promise<IDBDatabase | null> {
   });
 }
 
-function request<T>(operation: IDBRequest<T>): Promise<T> {
+/**
+ * IndexedDB's own types resolve to `any`, so the caller states what the store
+ * holds. Every record here was written by this class, so the assertion is a
+ * statement about our own schema rather than about untrusted input.
+ */
+function request<T>(operation: IDBRequest): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    operation.onsuccess = () => resolve(operation.result);
+    operation.onsuccess = () => resolve(operation.result as T);
     operation.onerror = () => reject(operation.error ?? new Error("IndexedDB request failed"));
   });
 }

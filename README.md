@@ -89,22 +89,71 @@ Resend.
 
 ```text
 npm run invite:new               # mint an invite code
-npm run smoke                    # 18 end-to-end checks against the running Worker
+npm run user --show you@example.com   # inspect an account
+npm run user --unsuspend you@example.com --remote   # the recovery path
+npm run smoke                    # 22 end-to-end checks against the running Worker
+npm run smoke:prod               # the read-only subset, safe against production
 ```
 
 ### Tests
 
 ```text
 npm test            # both projects
-npm run test:app    # browser code, jsdom
+npm run test:app    # browser code and React screens, jsdom
 npm run test:worker # Worker code, real workerd against a real D1
+npm run test:e2e    # Playwright, against real build output
 ```
 
 Worker tests run in `workerd` with migrations applied per test file, so quota
 arithmetic and single-use-token behaviour are proven against SQLite rather than
 against a mock that agrees with whatever the code happens to do.
 
+The Playwright test is the only one that runs the real bundle, the real service
+worker registration and the real CSP together, which is the class of bug the
+other two projects structurally cannot see. It fakes exactly two things, both at
+the platform boundary: the microphone and the Groq endpoint.
+
+## Operations
+
+Observability is Cloudflare-native, and deliberately so: a third-party log
+processor would mean a new `connect-src` exception in a policy whose tightness is
+the point of the whole design.
+
+- **Logpush** to R2 or an HTTP endpoint you own, from the Worker's
+  Observability tab. Every log line this Worker writes is structured JSON with
+  ids, statuses and latencies -- never a transcript, an instruction, an email
+  address or a token.
+- **Alerts worth setting**, all on log lines that already exist:
+  `"event":"magic-link-send-failed"` (nobody can sign in, and the route swallows
+  the failure by design), `[startup]` (a configuration mistake, served as a
+  generic 500), and `"event":"sweep-failed"` (the hourly cron is no longer
+  reclaiming leaked budget).
+- **A weekly usage summary** is written by the cron itself on Mondays at 06:xx
+  UTC as `"event":"weekly-usage"` -- counts only, from the numbers already in
+  `usage_daily`.
+
+The emergency stop is `GLOBAL_DAILY_SPEND_MICROS=0`, which refuses every
+transcription and chat call until it is raised again.
+
 ## Deploying
+
+### Staging
+
+`wrangler.jsonc` has an `env.staging` block: a Worker on a workers.dev hostname
+with its own D1 database, so a schema change can be applied somewhere that is
+not where people keep their words. Before the first staging deploy, run
+`npx wrangler d1 create rabblebabble-staging`, paste the id into that block, set
+its secrets with `--env staging`, and put the printed hostname into `APP_ORIGIN`
+there and into the `STAGING_URL` repository variable the deploy workflow smokes.
+
+The Deploy Worker workflow takes a target. Production refuses to run from any
+ref but `main`, and both targets require a GitHub environment of the same name
+-- give `production` a required reviewer and scope `CLOUDFLARE_API_TOKEN` to it,
+so the token is not a plain repository secret every workflow run can reach. Each
+deploy ends with `scripts/smoke.mjs --read-only` against the thing it just
+deployed.
+
+### Production
 
 The committed `wrangler.jsonc` **is** production: `wrangler deploy` runs with no
 `--env`, so whatever is in that file is what ships. It currently deploys to

@@ -25,9 +25,40 @@ export async function runSweep(db: D1Database, nowSeconds: number): Promise<void
   // fails every hour with nothing anywhere saying so.
   try {
     await sweep(db, nowSeconds);
+    // Monday at 06:xx UTC. The cron runs hourly, so both halves of this
+    // condition are load-bearing: without the hour it would report 24 times.
+    const now = new Date(nowSeconds * 1000);
+    if (now.getUTCDay() === 1 && now.getUTCHours() === 6) {
+      await reportWeeklyUsage(db, nowSeconds);
+    }
   } catch (error) {
     console.error(JSON.stringify({ event: "sweep-failed", detail: String(error) }));
   }
+}
+
+/**
+ * Once a week, a single line with the numbers already in usage_daily.
+ *
+ * Cloudflare-native on purpose: a third-party processor would mean a new
+ * connect-src exception in a policy whose tightness is the whole point. This
+ * is a Logpush-friendly log line and nothing more.
+ */
+async function reportWeeklyUsage(db: D1Database, nowSeconds: number): Promise<void> {
+  const since = new Date((nowSeconds - 7 * 86_400) * 1000).toISOString().slice(0, 10);
+  const row = await db
+    .prepare(
+      `SELECT COUNT(DISTINCT user_id) AS users,
+              COALESCE(SUM(audio_seconds), 0) AS audio_seconds,
+              COALESCE(SUM(transcribe_calls), 0) AS transcribe_calls,
+              COALESCE(SUM(chat_calls), 0) AS chat_calls,
+              COALESCE(SUM(micros_spent), 0) AS micros_spent
+         FROM usage_daily WHERE day >= ?1`,
+    )
+    .bind(since)
+    .first<Record<string, number>>();
+
+  // Counts only. Never a transcript, an instruction or an email address.
+  console.log(JSON.stringify({ event: 'weekly-usage', since, ...(row ?? {}) }));
 }
 
 async function sweep(db: D1Database, nowSeconds: number): Promise<void> {

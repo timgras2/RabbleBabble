@@ -56,3 +56,18 @@ jobs:
 
       - name: Build (bring-your-own-key)
         run: npm run build:byok
+
+      # The only check that runs the real bundle, the real service-worker
+      # registration and the real CSP together. Everything else in the suite
+      # runs modules in isolation, where none of those exist.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end (record -> transcribe -> copy)
+        run: npm run test:e2e
+
+      # Fails the build on a known high-severity advisory rather than
+      # reporting one into a log nobody reads. Moderate and below are noisy
+      # enough in a dev-dependency tree to be worth reviewing by hand.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high

@@ -10,6 +10,13 @@ import process from "node:process";
  * Usage:
  *   npm run dev:worker           # in another terminal
  *   node scripts/smoke.mjs [baseUrl] [--invite CODE] [--email you@example.com]
+ *   node scripts/smoke.mjs https://rabblebabble.cc --read-only
+ *
+ * --read-only is what makes this safe to run against production as a
+ * post-deploy gate: it skips the 26 MB upload and the sign-in flow, which
+ * would otherwise push a lot of bytes and trigger a real Resend send on every
+ * single deploy. What remains is exactly the set of checks that prove the
+ * deployment is answering correctly.
  */
 
 const baseUrl = (process.argv[2]?.startsWith("http") ? process.argv[2] : "http://localhost:8787").replace(/\/+$/, "");
@@ -21,6 +28,7 @@ function argument(name) {
 
 const inviteCode = argument("invite");
 const email = argument("email") ?? "smoke@example.com";
+const readOnly = process.argv.includes("--read-only");
 
 const APP_HEADERS = {
   Origin: baseUrl,
@@ -56,24 +64,51 @@ async function run() {
   check("a request from another origin is refused", foreign.status === 403, `got ${foreign.status}`);
 
   console.log("\nupload limits");
-  // 26 MB: past the 25 MiB cap, and the one limit only a real request proves.
-  const oversized = await fetch(`${baseUrl}/v1/transcribe`, {
-    method: "POST",
-    headers: { ...APP_HEADERS, "Content-Type": "audio/webm" },
-    body: new Uint8Array(26 * 1024 * 1024),
-  });
-  check(
-    "an oversized upload is refused (401 before sign-in, 413 after)",
-    oversized.status === 413 || oversized.status === 401,
-    `got ${oversized.status}`,
-  );
+  if (readOnly) {
+    console.log("  skip  oversized upload (--read-only: 26 MB is not a thing to push at production)");
+  } else {
+    // 26 MB: past the 25 MiB cap, and the one limit only a real request proves.
+    const oversized = await fetch(`${baseUrl}/v1/transcribe`, {
+      method: "POST",
+      headers: { ...APP_HEADERS, "Content-Type": "audio/webm" },
+      body: new Uint8Array(26 * 1024 * 1024),
+    });
+    check(
+      "an oversized upload is refused (401 before sign-in, 413 after)",
+      oversized.status === 413 || oversized.status === 401,
+      `got ${oversized.status}`,
+    );
+  }
 
   console.log("\nstatic assets");
   const root = await fetch(`${baseUrl}/`);
   check("the app shell is served from the same origin", root.ok, `got ${root.status}`);
   check("the app shell is HTML", (root.headers.get("Content-Type") ?? "").includes("text/html"));
+  // These come from src/public/_headers, which exists only because asset
+  // responses never invoke the Worker -- so nothing else can prove they ship.
+  check(
+    "the app shell refuses to be framed",
+    (root.headers.get("Content-Security-Policy") ?? "").includes("frame-ancestors 'none'"),
+  );
+  check("the app shell sets HSTS", (root.headers.get("Strict-Transport-Security") ?? "").includes("max-age="));
+  check(
+    "the app shell allows only its own microphone",
+    (root.headers.get("Permissions-Policy") ?? "").includes("microphone=(self)"),
+  );
+
+  const manifest = await fetch(`${baseUrl}/manifest.webmanifest`);
+  check("the manifest is served", manifest.ok, `got ${manifest.status}`);
+  const manifestBody = await manifest.json().catch(() => ({}));
+  // Install identity keys on start_url without this, so adding it later
+  // would orphan every existing install.
+  check("the manifest declares an id", typeof manifestBody?.id === "string");
 
   console.log("\nsign-in");
+  if (readOnly) {
+    console.log("  skip  sign-in (--read-only: this would send a real email on every deploy)");
+    finish();
+    return;
+  }
   const requested = await fetch(`${baseUrl}/auth/request-link`, {
     method: "POST",
     headers: { ...APP_HEADERS, "Content-Type": "application/json" },
@@ -132,6 +167,10 @@ async function run() {
     }
   }
 
+  finish();
+}
+
+function finish() {
   console.log("");
   if (failures > 0) {
     console.error(`${failures} check(s) failed.`);

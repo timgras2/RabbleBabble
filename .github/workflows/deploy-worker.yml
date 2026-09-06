@@ -1,10 +1,20 @@
 name: Deploy Worker
 
-# Manual only for now. Phase 2 adds a staging environment; until then a deploy
-# should be a decision, not a side effect of merging.
+# Manual only, and now to a chosen environment. The dispatch UI will offer any
+# branch, so the ref restriction below is what stops an arbitrary branch going
+# straight to rabblebabble.cc with a token that has no protection rules of its
+# own.
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: Where to deploy
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
       confirm:
         description: 'Type "deploy" to confirm'
         required: true
@@ -14,14 +24,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-worker
+  group: deploy-worker-${{ inputs.target }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     if: inputs.confirm == 'deploy'
     runs-on: ubuntu-latest
+    # Requires a GitHub environment of the same name. Give "production" a
+    # required reviewer and scope CLOUDFLARE_API_TOKEN to it, so the token is
+    # not a plain repo secret any workflow run can reach.
+    environment: ${{ inputs.target }}
     steps:
+      - name: Refuse to deploy production from anywhere but main
+        if: inputs.target == 'production' && github.ref != 'refs/heads/main'
+        run: |
+          echo "Production deploys must run from main. This ref is ${{ github.ref }}."
+          exit 1
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -54,10 +74,25 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: d1 migrations apply rabblebabble --remote
+          command: >-
+            d1 migrations apply
+            ${{ inputs.target == 'production' && 'rabblebabble' || 'rabblebabble-staging' }}
+            --remote
+            ${{ inputs.target == 'production' && ' ' || '--env staging' }}
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: deploy
+          command: >-
+            deploy ${{ inputs.target == 'production' && ' ' || '--env staging' }}
+
+      # The gate. scripts/smoke.mjs existed, took a baseUrl, and ran in no
+      # workflow at all -- so nothing ever checked that a deploy was actually
+      # answering. --read-only skips the 26 MB upload and the real Resend send,
+      # which is what makes it safe to run on every deploy.
+      - name: Smoke the deployment
+        run: >-
+          node scripts/smoke.mjs
+          ${{ inputs.target == 'production' && 'https://rabblebabble.cc' || vars.STAGING_URL }}
+          --read-only

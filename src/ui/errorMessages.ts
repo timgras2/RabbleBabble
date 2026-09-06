@@ -81,6 +81,21 @@ export function messageForError(error: AdapterError): ErrorMessage {
       };
     case "cancelled":
       return { title: "Request cancelled", detail: "No changes were made to the transcript." };
+    // These three used to fall through to the raw adapter message, which is
+    // written for a developer reading a stack trace, not for someone holding
+    // a phone. errorMessages.test.ts now refuses to let a code slip through.
+    case "empty-transcript":
+      return { title: "Nothing was picked up", detail: "No speech was detected. Try recording again." };
+    case "clipboard-unavailable":
+      return {
+        title: "Copying is unavailable here",
+        detail: "This browser will not let the page use the clipboard. Select the text and copy it by hand.",
+      };
+    case "clipboard-denied":
+      return {
+        title: "Clipboard permission is off",
+        detail: "Allow clipboard access for this site, then tap Copy again.",
+      };
     case "api-server":
       return { title: SERVICE_MODE ? "Could not reach RabbleBabble" : "Could not reach Groq", detail: safeNetworkDetail(error) };
     case "api-invalid":

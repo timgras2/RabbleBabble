@@ -18,6 +18,27 @@ export type App = Hono<{ Bindings: Env; Variables: Vars }>;
  * Built from injected deps rather than reading `env`, so tests drive the real
  * routing and the real database with a stubbed Groq fetcher and mailer.
  */
+/**
+ * Turns whatever was thrown into something a log line can carry.
+ *
+ * `String(value)` on a plain object produces "[object Object]" -- for exactly
+ * the failure you most want to debug, since that is what an upstream error
+ * body deserialises to.
+ */
+function describe(value: unknown): string {
+  if (value instanceof Error) {
+    return `${value.name}: ${value.message}`;
+  }
+  if (typeof value === "object" && value !== null) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[unserialisable]";
+    }
+  }
+  return String(value);
+}
+
 export function createApp(deps: Deps): App {
   const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -67,7 +88,7 @@ export function createApp(deps: Deps): App {
     const requestId = c.get("requestId");
     if (error instanceof ApiError) {
       if (error.internal !== undefined) {
-        console.error(JSON.stringify({ requestId, reason: error.reason, internal: String(error.internal) }));
+        console.error(JSON.stringify({ requestId, reason: error.reason, internal: describe(error.internal) }));
       }
       const headers: Record<string, string> = {};
       if (error.retryAfterSeconds !== undefined) {

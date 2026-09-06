@@ -87,5 +87,54 @@
 		"PRICE_CHAT_IN_MICROS_PER_MTOK": "75000",
 		"PRICE_CHAT_OUT_MICROS_PER_MTOK": "300000",
 		"GROQ_BASE_URL": "https://api.groq.com/openai/v1"
+	},
+	// Everything above is production: the committed file IS what a workflow
+	// dispatch deploys, and there was nothing between that dispatch and
+	// rabblebabble.cc. Staging is a real Worker on a workers.dev hostname with
+	// its own D1 database, so a schema change can be applied somewhere that is
+	// not where people keep their words.
+	//
+	// Before the first staging deploy:
+	//   npx wrangler d1 create rabblebabble-staging
+	// then paste the id below and set its secrets with --env staging.
+	"env": {
+		"staging": {
+			"name": "rabblebabble-staging",
+			"workers_dev": true,
+			"routes": [],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "rabblebabble-staging",
+					"database_id": "REPLACE_WITH_STAGING_DATABASE_ID",
+					"migrations_dir": "worker/migrations"
+				}
+			],
+			"vars": {
+				// The one value that must differ, and the one the same-site guard
+				// and every magic link are built from. Fill in the real
+				// workers.dev hostname after the first deploy prints it.
+				"APP_ORIGIN": "https://rabblebabble-staging.workers.dev",
+				"SIGNUP_MODE": "invite",
+				// Never console: readConfig refuses it off localhost anyway.
+				"EMAIL_MODE": "resend",
+				"EMAIL_FROM": "RabbleBabble <login@send.rabblebabble.cc>",
+				"MAGIC_LINK_TTL_SECONDS": "900",
+				"SESSION_TTL_SECONDS": "7776000",
+				"REQUIRE_SAME_DEVICE_LINK": "true",
+				"USER_DAILY_AUDIO_SECONDS": "600",
+				"USER_DAILY_TRANSCRIBE_CALLS": "20",
+				"USER_DAILY_CHAT_CALLS": "20",
+				"USER_DAILY_SPEND_MICROS": "10000",
+				// A tenth of production. Staging is for proving a deploy works,
+				// not for using the product.
+				"GLOBAL_DAILY_SPEND_MICROS": "100000",
+				"TRANSCRIBE_RESERVE_SECONDS": "300",
+				"PRICE_TRANSCRIBE_MICROS_PER_HOUR": "40000",
+				"PRICE_CHAT_IN_MICROS_PER_MTOK": "75000",
+				"PRICE_CHAT_OUT_MICROS_PER_MTOK": "300000",
+				"GROQ_BASE_URL": "https://api.groq.com/openai/v1"
+			}
+		}
 	}
 }

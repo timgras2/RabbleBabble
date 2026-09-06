@@ -1,5 +1,5 @@
 import { ArrowLeft, Settings2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { SERVICE_MODE } from "./app/mode";
 import type { AppServices } from "./app/types";
 import { useAuthSession, useHasTranscript } from "./hooks/useAuthSession";
@@ -7,8 +7,17 @@ import { useDictation } from "./hooks/useDictation";
 import { useUpdatePrompt } from "./hooks/useUpdatePrompt";
 import { WaveMark } from "./ui/components/WaveMark";
 import { RecorderScreen } from "./ui/RecorderScreen";
-import { SettingsScreen } from "./ui/SettingsScreen";
+// Eager, deliberately. A lazy() emits its chunk unconditionally -- Rollup will
+// not remove a dynamic import that sits in a folded branch -- so lazy-loading
+// this one put the sign-in screen in the bring-your-own-key bundle, which
+// check-build-mode.mjs correctly refused. Static imports still tree-shake, so
+// this costs the BYOK build nothing and the service build ~4 kB.
 import { SignInScreen } from "./ui/SignInScreen";
+
+// First paint is the recorder, always. Settings is a tap away at the earliest,
+// and does not belong in the bytes that stand between opening the app and
+// being able to talk into it.
+const SettingsScreen = lazy(async () => ({ default: (await import("./ui/SettingsScreen")).SettingsScreen }));
 
 interface AppProps {
   readonly services: AppServices;
@@ -95,18 +104,20 @@ export function App({ services }: AppProps) {
         </div>
       )}
 
-      {current === "settings" ? (
-        <SettingsScreen services={services} focusRef={mainRef} />
-      ) : SERVICE_MODE && current === "sign-in" ? (
-        <SignInScreen services={services} focusRef={mainRef} />
-      ) : (
-        <RecorderScreen
-          services={services}
-          focusRef={mainRef}
-          onOpenSettings={() => setScreen("settings")}
-          onSignIn={() => setScreen("sign-in")}
-        />
-      )}
+      <Suspense fallback={<main className="screen" />}>
+        {current === "settings" ? (
+          <SettingsScreen services={services} focusRef={mainRef} />
+        ) : SERVICE_MODE && current === "sign-in" ? (
+          <SignInScreen services={services} focusRef={mainRef} />
+        ) : (
+          <RecorderScreen
+            services={services}
+            focusRef={mainRef}
+            onOpenSettings={() => setScreen("settings")}
+            onSignIn={() => setScreen("sign-in")}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

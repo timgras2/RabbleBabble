@@ -324,14 +324,14 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
             <button
               type="button"
               className={`copy-button${copyStatus?.kind === "success" ? " copy-button--copied" : ""}`}
-              onClick={copy}
+              onClick={() => void copy()}
             >
               {copyStatus?.kind === "success" ? <><Check size={17} /> Copied</> : <><Clipboard size={17} /> Copy text</>}
             </button>
             {/* Only where the platform actually has a share sheet. Elsewhere
                 Copy is the whole answer, and a dead button is worse than none. */}
             {services.clipboard.canShare() && (
-              <button type="button" className="share-button" onClick={share} aria-label="Share transcript">
+              <button type="button" className="share-button" onClick={() => void share()} aria-label="Share transcript">
                 <Share2 size={17} />
               </button>
             )}
@@ -375,7 +375,7 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
             <ErrorAction
               code={dictation.error?.code}
               canRetry={dictation.canRetry}
-              onRetry={retryUpload}
+              onRetry={() => void retryUpload()}
               onOpenSettings={onOpenSettings}
               onSignIn={onSignIn}
             />
@@ -386,8 +386,8 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }:
       <section className="action-zone" aria-label="Recorder">
         <RecordButton
           state={dictation.state}
-          onStart={start}
-          onStop={stop}
+          onStart={() => void start()}
+          onStop={() => void stop()}
           recordingIndicator={<LevelMeter recorder={services.recorder} active />}
         />
         <div className="action-zone__status">

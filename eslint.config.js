@@ -8,7 +8,11 @@ export default tseslint.config(
     ignores: ["dist", "node_modules", "coverage", ".wrangler", "worker/worker-configuration.d.ts"],
   },
   eslint.configs.recommended,
-  ...tseslint.configs.recommended,
+  // Type-aware, not just syntactic. `recommended` leaves no-floating-promises
+  // and no-misused-promises switched off, in a codebase full of
+  // AbortControllers, wake locks, IndexedDB requests and D1 calls -- exactly
+  // where an unawaited promise goes unnoticed.
+  ...tseslint.configs.recommendedTypeChecked,
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
@@ -16,16 +20,45 @@ export default tseslint.config(
         ...globals.browser,
         ...globals.node,
       },
+      // Explicit projects rather than projectService: the repo deliberately
+      // has two tsconfigs with different libs and globals, and each file
+      // belongs to exactly one of them.
+      parserOptions: {
+        project: ["./tsconfig.json", "./tsconfig.worker.json", "./tsconfig.e2e.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
     plugins: {
       "react-hooks": reactHooks,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // Off deliberately. The point of turning on type-aware linting was
+      // no-floating-promises and no-misused-promises; require-await flags
+      // every `async () => value` port implementation and test double, all of
+      // which are correct -- an async signature is part of the contract there.
+      "@typescript-eslint/require-await": "off",
     },
   },
   {
-    files: ["scripts/**/*.mjs"],
+    // Tests speak to untyped JSON and to mock call records, where `any` is the
+    // honest type. The rules that matter for correctness stay on everywhere.
+    files: ["**/*.test.{ts,tsx}", "src/test/**/*.ts", "worker/test/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      "@typescript-eslint/no-base-to-string": "off",
+      "@typescript-eslint/unbound-method": "off",
+      "@typescript-eslint/no-unnecessary-type-assertion": "off",
+    },
+  },
+  {
+    // Plain JavaScript, so there is no type information to check against.
+    files: ["**/*.{js,mjs}"],
+    extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       globals: globals.node,
     },

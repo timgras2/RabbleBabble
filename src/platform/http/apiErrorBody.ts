@@ -35,7 +35,7 @@ const KNOWN_CODES = new Set<string>([
  * a proxy error page, say - so the caller can fall back to the status code.
  */
 export async function parseApiError(response: Response): Promise<ParsedApiError | null> {
-  const body = await response
+  const body: unknown = await response
     .clone()
     .json()
     .catch(() => null);

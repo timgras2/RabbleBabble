@@ -1,0 +1,27 @@
+version: 2
+
+# A dictation app whose whole security argument is "the key never reaches the
+# browser and the policy is tight" depends on the supply chain underneath it.
+# Weekly rather than daily, and grouped, so this stays reviewable rather than
+# becoming noise somebody learns to ignore.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine bumps; anything major arrives on its own, where
+      # it can be read properly.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { APP_ORIGIN, appHeaders, buildTestApp, createInvite, jsonHeaders, signIn, type TestApp } from "./helpers/app";
+import { APP_ORIGIN, appHeaders, buildTestApp, cookieFrom, createInvite, jsonHeaders, signIn, type TestApp } from "./helpers/app";
 
 async function signedIn(testApp: TestApp, address: string): Promise<string> {
   return signIn(testApp, address, { inviteCode: await createInvite() });
@@ -103,5 +103,43 @@ describe("DELETE /v1/me", () => {
     expect(user).toBeNull();
     // ON DELETE CASCADE was already declared; only the entry point was missing.
     expect((await sessionRows("gone@example.com")).results).toHaveLength(0);
+  });
+});
+
+describe("magic-link redemption race", () => {
+  /**
+   * The single-use guarantee is the conditional UPDATE, not a read followed by
+   * a write. quota.test.ts tests the spend race this way; the token race was
+   * never tested at all -- and it is the one that hands out a session.
+   */
+  it("gives exactly one of two simultaneous redemptions a session", async () => {
+    const testApp = buildTestApp();
+    const code = await createInvite();
+    const requested = await testApp.app.request(`${APP_ORIGIN}/auth/request-link`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: "race@example.com", inviteCode: code }),
+    });
+    const nonce = cookieFrom(requested, "__Host-rb_link");
+    const link = testApp.email.lastLinkSent() ?? "";
+    const token = new URL(link).searchParams.get("token") ?? "";
+
+    const redeem = () =>
+      testApp.app.request(`${APP_ORIGIN}/auth/callback`, {
+        method: "POST",
+        headers: {
+          Origin: APP_ORIGIN,
+          "Sec-Fetch-Site": "same-origin",
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...(nonce === null ? {} : { Cookie: `__Host-rb_link=${nonce}` }),
+        },
+        body: new URLSearchParams({ token }).toString(),
+      });
+
+    const [first, second] = await Promise.all([redeem(), redeem()]);
+    const statuses = [first.status, second.status].sort((a, b) => a - b);
+
+    expect(statuses).toEqual([303, 400]);
+    expect((await sessionRows("race@example.com")).results).toHaveLength(1);
   });
 });

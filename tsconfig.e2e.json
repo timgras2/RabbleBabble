@@ -1,0 +1,19 @@
+{
+  // Playwright runs in Node against a browser it drives, so it shares neither
+  // the app's DOM globals nor the Worker's runtime types. Its own project keeps
+  // both of those honest.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}
