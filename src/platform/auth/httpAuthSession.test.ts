@@ -47,7 +47,7 @@ describe("HttpAuthSession", () => {
     const auth = session(vi.fn<typeof fetch>(async () => unauthorized()));
 
     await expect(auth.refresh()).resolves.toMatchObject({ status: "signed-out", account: null });
-    await expect(auth.ensureSignedIn()).rejects.toMatchObject({ code: "not-authenticated" });
+    expect(() => auth.requireSignedIn()).toThrowError(expect.objectContaining({ code: "not-authenticated" }));
   });
 
   /**
@@ -64,7 +64,7 @@ describe("HttpAuthSession", () => {
 
     expect(state.status).toBe("unknown");
     expect(state.error).not.toBeNull();
-    await expect(auth.ensureSignedIn()).rejects.toMatchObject({ retryable: true });
+    expect(() => auth.requireSignedIn()).toThrowError(expect.objectContaining({ retryable: true }));
   });
 
   it("shares one request between concurrent callers", async () => {

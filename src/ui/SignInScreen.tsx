@@ -1,5 +1,5 @@
 import { AlertCircle, Mail, Send, Ticket } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type Ref } from "react";
 import type { AppServices } from "../app/types";
 import { useAuthSession } from "../hooks/useAuthSession";
 import { AdapterError } from "../platform/errors";
@@ -7,13 +7,14 @@ import { messageForError } from "./errorMessages";
 
 interface SignInScreenProps {
   readonly services: AppServices;
+  readonly focusRef?: Ref<HTMLElement>;
 }
 
 type Stage = "form" | "sending" | "sent";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-export function SignInScreen({ services }: SignInScreenProps) {
+export function SignInScreen({ services, focusRef }: SignInScreenProps) {
   const auth = useAuthSession(services);
   const [email, setEmail] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -51,7 +52,8 @@ export function SignInScreen({ services }: SignInScreenProps) {
   if (auth.status === "unknown" && auth.error !== null) {
     const message = messageForError(auth.error);
     return (
-      <main className="screen signin-screen">
+      <main className="screen signin-screen" ref={focusRef} tabIndex={-1}>
+        <h1 className="visually-hidden">Sign in to RabbleBabble</h1>
         <div className="notice notice--error" role="alert">
           <AlertCircle size={19} />
           <div>
@@ -68,8 +70,11 @@ export function SignInScreen({ services }: SignInScreenProps) {
 
   if (stage === "sent") {
     return (
-      <main className="screen signin-screen">
-        <section className="signin-sent" role="status">
+      <main className="screen signin-screen" ref={focusRef} tabIndex={-1}>
+        <div className="visually-hidden" aria-live="polite" aria-atomic="true">
+          Check your email for a sign-in link.
+        </div>
+        <section className="signin-sent">
           <h1>Check your email</h1>
           <p>
             We sent a sign-in link to <strong>{email.trim()}</strong>. Opening it signs you in on this device. It
@@ -94,7 +99,7 @@ export function SignInScreen({ services }: SignInScreenProps) {
   const message = error === null ? null : messageForError(error);
 
   return (
-    <main className="screen signin-screen">
+    <main className="screen signin-screen" ref={focusRef} tabIndex={-1}>
       <section className="settings-heading">
         <h1>Sign in to RabbleBabble</h1>
         <p>We email you a link. There is no password to remember, and no API key to set up.</p>

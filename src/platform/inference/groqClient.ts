@@ -184,7 +184,7 @@ export class GroqHttpClient implements InferenceClient {
     return { text };
   }
 
-  async ensureReady(): Promise<void> {
+  checkReady(): void {
     this.validateKey(this.apiKey());
   }
 

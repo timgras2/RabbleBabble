@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Clipboard, Info, Pencil, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Ref } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
 import { AdapterError } from "../platform/errors";
@@ -7,6 +8,7 @@ import { messageForError } from "./errorMessages";
 import { SERVICE_MODE } from "../app/mode";
 import type { AdapterErrorCode } from "../platform/errors";
 import { MAX_INSTRUCTION_CHARS } from "../shared/limits";
+import type { DictationState } from "../services/types";
 import { LevelMeter } from "./components/LevelMeter";
 import { RecordButton } from "./components/RecordButton";
 import { haptics } from "./haptics";
@@ -15,9 +17,11 @@ interface RecorderScreenProps {
   readonly services: AppServices;
   readonly onOpenSettings: () => void;
   readonly onSignIn: () => void;
+  /** App focuses this after a route change, so navigation is announced. */
+  readonly focusRef?: Ref<HTMLElement>;
 }
 
-export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderScreenProps) {
+export function RecorderScreen({ services, onOpenSettings, onSignIn, focusRef }: RecorderScreenProps) {
   const dictation = useDictation(services);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [copyStatus, setCopyStatus] = useStateCopyStatus();
@@ -42,15 +46,22 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
     };
   }, [busy]);
 
+  // Derived from the recorder's own start time, not from this effect running:
+  // opening Settings mid-recording unmounts the screen, and a timer that
+  // restarts from zero against a real five-minute cap is a lie.
   useEffect(() => {
     if (dictation.state !== "recording") {
       return;
     }
 
-    const startedAt = Date.now();
-    const timer = setInterval(() => setElapsedMs(Date.now() - startedAt), 1_000);
+    const tick = () => {
+      const startedAt = services.recorder.startedAt;
+      setElapsedMs(startedAt === null ? 0 : Date.now() - startedAt);
+    };
+    tick();
+    const timer = setInterval(tick, 1_000);
     return () => clearInterval(timer);
-  }, [dictation.state]);
+  }, [dictation.state, services.recorder]);
 
   const start = async () => {
     setCopyStatus(null);
@@ -58,6 +69,8 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
     setRewriteInstruction("");
     setElapsedMs(0);
     try {
+      // Nothing may be awaited between the tap and this call: WebKit needs the
+      // user activation to still be live when getUserMedia is reached.
       await dictation.start();
       haptics.recordStart();
     } catch (error) {
@@ -88,7 +101,15 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
     try {
       await dictation.stop();
     } catch {
-      // The hook exposes the actionable error below the recorder.
+      // The snapshot carries the actionable error below the recorder.
+    }
+  };
+
+  const retryUpload = async () => {
+    try {
+      await dictation.retryUpload();
+    } catch {
+      // Same: a second failure updates the same error in the snapshot.
     }
   };
 
@@ -156,14 +177,34 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
   }
   const showIntro = !everCompletedThisSession;
 
+  const stateLabel = STATE_LABELS[dictation.state];
+  // Exactly two live regions on the screen, both empty of interactive content.
+  // The old model wrapped the whole result card -- transcript, rewrite form and
+  // copy button -- in one polite region containing three more, so a single
+  // dictation announced itself five times over.
+  const politeAnnouncement =
+    copyStatus?.kind === "success" ? "Copied to clipboard." : dictation.notice ?? stateLabel;
+  const assertiveAnnouncement =
+    copyStatus?.kind === "error"
+      ? copyStatus.message
+      : errorMessage
+        ? `${errorMessage.title}. ${errorMessage.detail}`
+        : "";
+
   return (
-    <main className={`screen recorder-screen${hasResult ? "" : " recorder-screen--idle"}`}>
-      <div className="transcript-zone" aria-live="polite">
-        {showIntro && !hasResult && (
+    <main className={`screen recorder-screen${hasResult ? "" : " recorder-screen--idle"}`} ref={focusRef} tabIndex={-1}>
+      <div className="visually-hidden" aria-live="polite" aria-atomic="true">{politeAnnouncement}</div>
+      <div className="visually-hidden" role="alert" aria-atomic="true">{assertiveAnnouncement}</div>
+      <div className="transcript-zone">
+        {showIntro && !hasResult ? (
           <section className="hero-panel">
             <h1>Why type<br />when you can talk?</h1>
             <p className="hero-copy">Record a thought, get a clean transcript, and copy it wherever it belongs.</p>
           </section>
+        ) : (
+          // The hero retires after the first transcript, so without this the
+          // screen would have no h1 at all for the rest of the session.
+          <h1 className="visually-hidden">Recorder</h1>
         )}
 
         {!showIntro && !hasResult && !errorMessage && (
@@ -218,16 +259,28 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
           >
             {copyStatus?.kind === "success" ? <><Check size={17} /> Copied</> : <><Clipboard size={17} /> Copy text</>}
           </button>
-          <span className="visually-hidden" role="status">{copyStatus?.kind === "success" ? "Copied to clipboard." : ""}</span>
-          {copyStatus?.kind === "error" && <div className="copy-status copy-status--error" role="alert">{copyStatus.message}</div>}
+          {copyStatus?.kind === "error" && <div className="copy-status copy-status--error">{copyStatus.message}</div>}
         </section>
       )}
 
+        {dictation.notice && !errorMessage && (
+          <div className="notice notice--info">
+            <Info size={19} />
+            <div><span>{dictation.notice}</span></div>
+          </div>
+        )}
+
         {errorMessage && (
-          <div className="notice notice--error" role="alert">
+          <div className="notice notice--error">
             <AlertCircle size={19} />
             <div><strong>{errorMessage.title}</strong><span>{errorMessage.detail}</span></div>
-            <ErrorAction code={dictation.error?.code} onOpenSettings={onOpenSettings} onSignIn={onSignIn} />
+            <ErrorAction
+              code={dictation.error?.code}
+              canRetry={dictation.canRetry}
+              onRetry={retryUpload}
+              onOpenSettings={onOpenSettings}
+              onSignIn={onSignIn}
+            />
           </div>
         )}
       </div>
@@ -250,15 +303,10 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
             )}
           </div>
           {showProgress && <div className="progress-bar" aria-hidden="true"><span /></div>}
-          <div className="state-line" aria-live="polite">
-            {dictation.state === "idle" && "Tap to start recording"}
-            {dictation.state === "recording" && "Listening... tap to stop"}
-            {dictation.state === "transcribing" && "Turning audio into text..."}
-            {dictation.state === "cleaning" && "Polishing your words..."}
-            {dictation.state === "rewriting" && "Applying your changes..."}
-            {dictation.state === "completed" && "Transcript ready"}
-            {dictation.state === "error" && "Something needs your attention"}
-          </div>
+          {/* Not a live region: the single polite announcer at the top of the
+              screen already carries this text, and two of them means two
+              announcements per state change. */}
+          <div className="state-line">{stateLabel}</div>
           {busy && (
             <button type="button" className="cancel-button" onClick={() => void dictation.cancel()}>
               {dictation.state === "rewriting" ? "Cancel rewrite" : "Cancel request"}
@@ -270,6 +318,16 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
     </main>
   );
 }
+
+const STATE_LABELS: Record<DictationState, string> = {
+  idle: "Tap to start recording",
+  recording: "Listening... tap to stop",
+  transcribing: "Turning audio into text...",
+  cleaning: "Polishing your words...",
+  rewriting: "Applying your changes...",
+  completed: "Transcript ready",
+  error: "Something needs your attention",
+};
 
 function formatDuration(durationMs: number): string {
   const totalSeconds = Math.floor(durationMs / 1_000);
@@ -298,21 +356,31 @@ function buildScrollFadeMask({ up, down }: { readonly up: boolean; readonly down
 
 function ErrorAction({
   code,
+  canRetry,
+  onRetry,
   onOpenSettings,
   onSignIn,
 }: {
   readonly code: AdapterErrorCode | undefined;
+  readonly canRetry: boolean;
+  readonly onRetry: () => void;
   readonly onOpenSettings: () => void;
   readonly onSignIn: () => void;
 }) {
+  // "Try again" comes first when the recording is still held: whatever else is
+  // wrong, the words are recoverable and that is what the user came for.
+  const retry = canRetry ? (
+    <button type="button" className="text-button" onClick={onRetry}>Try again</button>
+  ) : null;
+
   if (code === "not-authenticated" || (SERVICE_MODE && code === "missing-api-key")) {
-    return <button type="button" className="text-button" onClick={onSignIn}>Sign in</button>;
+    return <>{retry}<button type="button" className="text-button" onClick={onSignIn}>Sign in</button></>;
   }
   if (code === "quota-exceeded") {
-    return <button type="button" className="text-button" onClick={onOpenSettings}>See usage</button>;
+    return <>{retry}<button type="button" className="text-button" onClick={onOpenSettings}>See usage</button></>;
   }
   if (code === "missing-api-key" || code === "api-unauthorized") {
-    return <button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button>;
+    return <>{retry}<button type="button" className="text-button" onClick={onOpenSettings}>Open Settings</button></>;
   }
-  return null;
+  return retry;
 }

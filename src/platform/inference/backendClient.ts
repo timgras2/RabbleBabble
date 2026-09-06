@@ -46,8 +46,8 @@ export class BackendClient implements InferenceClient {
     });
   }
 
-  async ensureReady(): Promise<void> {
-    await this.session.ensureSignedIn();
+  checkReady(): void {
+    this.session.requireSignedIn();
 
     // An optimistic read of the last known snapshot. The server stays
     // authoritative; this just avoids recording into a wall.

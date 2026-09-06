@@ -1,5 +1,6 @@
 import { SERVICE_MODE } from "../app/mode";
 import type { AdapterError } from "../platform/errors";
+import { browserFamily } from "./platform";
 
 export interface ErrorMessage {
   readonly title: string;
@@ -27,15 +28,31 @@ export function messageForError(error: AdapterError): ErrorMessage {
     case "quota-exceeded":
       return {
         title: "Daily limit reached",
-        detail: "Your allowance resets after midnight UTC. Nothing you recorded was lost.",
+        detail: "Your allowance resets after midnight UTC.",
       };
+    // iOS never re-prompts once denied, and there is no programmatic way to
+    // ask again, so naming Chrome sent iPhone users to a screen that does not
+    // exist -- indistinguishable from the microphone being blocked by default.
     case "mic-denied":
-      return {
-        title: "Microphone permission is off",
-        detail: "Allow microphone access for this site in Chrome, then try again.",
-      };
+      return browserFamily() === "ios-safari"
+        ? {
+            title: "Microphone permission is off",
+            detail: "Tap aA in the address bar, choose Website Settings, and allow Microphone. Or Settings > Safari > Microphone.",
+          }
+        : {
+            title: "Microphone permission is off",
+            detail: "Allow microphone access for this site in your browser, then try again.",
+          };
     case "mic-unavailable":
-      return { title: "No microphone available", detail: "Check the device microphone and Chrome permissions." };
+      return browserFamily() === "ios-safari"
+        ? {
+            title: "No microphone available",
+            detail: "Check the device microphone, and that Safari is allowed to use it in Settings > Safari > Microphone.",
+          }
+        : {
+            title: "No microphone available",
+            detail: "Check the device microphone and the browser's site permissions.",
+          };
     case "offline":
       return { title: "You are offline", detail: "Reconnect to the internet. Recordings are not queued." };
     case "api-unauthorized":

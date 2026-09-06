@@ -35,8 +35,8 @@ export function useAuthSession(services: AppServices) {
 export function useHasTranscript(services: AppServices): boolean {
   const flow = services.dictation;
   return useSyncExternalStore(
-    (listener) => flow.subscribe(() => listener()),
-    () => flow.result !== null,
+    (listener) => flow.subscribe(listener),
+    () => flow.getSnapshot().result !== null,
     () => false,
   );
 }

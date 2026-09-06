@@ -1,8 +1,10 @@
 import { ArrowLeft, Settings2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SERVICE_MODE } from "./app/mode";
 import type { AppServices } from "./app/types";
 import { useAuthSession, useHasTranscript } from "./hooks/useAuthSession";
+import { useDictation } from "./hooks/useDictation";
+import { useUpdatePrompt } from "./hooks/useUpdatePrompt";
 import { WaveMark } from "./ui/components/WaveMark";
 import { RecorderScreen } from "./ui/RecorderScreen";
 import { SettingsScreen } from "./ui/SettingsScreen";
@@ -18,6 +20,29 @@ export function App({ services }: AppProps) {
   const [screen, setScreen] = useState<Screen>("recorder");
   const auth = useAuthSession(services);
   const hasTranscript = useHasTranscript(services);
+  const dictation = useDictation(services);
+  // Reloading now would destroy either the recording in progress or the words
+  // on screen, so the waiting worker keeps waiting and the offer comes back.
+  const update = useUpdatePrompt(!hasTranscript && dictation.state === "idle");
+
+  // A session that expires while a transcript is on screen must not take the
+  // screen away: the user has words they have not copied yet. They get an
+  // actionable error on the recorder instead.
+  const signedOut = SERVICE_MODE && auth.status !== "signed-in";
+  const current: Screen = signedOut && !hasTranscript ? "sign-in" : screen;
+
+  // Swapping the whole <main> without moving focus leaves a screen-reader user
+  // and a keyboard user on a button that no longer exists, with nothing said
+  // about where they now are. Only one screen is mounted, so one ref does.
+  const mainRef = useRef<HTMLElement>(null);
+  const shownScreen = useRef(current);
+  useEffect(() => {
+    if (shownScreen.current === current) {
+      return;
+    }
+    shownScreen.current = current;
+    mainRef.current?.focus();
+  }, [current]);
 
   // SERVICE_MODE is a build-time constant, so the whole branch disappears from
   // the bring-your-own-key bundle.
@@ -37,12 +62,6 @@ export function App({ services }: AppProps) {
     );
   }
 
-  // A session that expires while a transcript is on screen must not take the
-  // screen away: the user has words they have not copied yet. They get an
-  // actionable error on the recorder instead.
-  const signedOut = SERVICE_MODE && auth.status !== "signed-in";
-  const current: Screen = signedOut && !hasTranscript ? "sign-in" : screen;
-
   const onSettings = current === "settings";
   const onSignIn = current === "sign-in";
 
@@ -54,7 +73,7 @@ export function App({ services }: AppProps) {
             <button className="icon-button" type="button" onClick={() => setScreen("recorder")} aria-label="Back to recorder">
               <ArrowLeft size={20} />
             </button>
-            <span className="header-title">Settings</span>
+            <span className="header-title" aria-hidden="true">Settings</span>
           </div>
         ) : (
           <span className="brand">
@@ -69,13 +88,21 @@ export function App({ services }: AppProps) {
         )}
       </header>
 
+      {update.offer && (
+        <div className="update-banner">
+          <span>A new version is ready.</span>
+          <button type="button" className="text-button" onClick={update.apply}>Reload</button>
+        </div>
+      )}
+
       {current === "settings" ? (
-        <SettingsScreen services={services} />
+        <SettingsScreen services={services} focusRef={mainRef} />
       ) : SERVICE_MODE && current === "sign-in" ? (
-        <SignInScreen services={services} />
+        <SignInScreen services={services} focusRef={mainRef} />
       ) : (
         <RecorderScreen
           services={services}
+          focusRef={mainRef}
           onOpenSettings={() => setScreen("settings")}
           onSignIn={() => setScreen("sign-in")}
         />

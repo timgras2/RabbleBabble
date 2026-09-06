@@ -17,29 +17,47 @@ function settingsRepository(patch: Partial<Settings>): SettingsRepository {
   };
 }
 
-function recorder(): AudioRecorder & { states: RecordingState[] } {
+interface FakeRecorder extends AudioRecorder {
+  readonly states: RecordingState[];
+  /** Drives the adapter's own state, which the flow subscribes to. */
+  emit(state: RecordingState): void;
+  endedBy: AudioRecording["endedBy"];
+}
+
+function recorder(): FakeRecorder {
   const states: RecordingState[] = [];
-  return {
+  const listeners = new Set<(state: RecordingState) => void>();
+  const fake: FakeRecorder = {
     states,
     state: "idle",
+    startedAt: null,
+    endedBy: "user",
     getInputLevel: () => null,
+    emit(state) {
+      for (const listener of listeners) listener(state);
+    },
     start: vi.fn(async () => { states.push("recording"); }),
     stop: vi.fn(async (): Promise<AudioRecording> => ({
       blob: new Blob(["audio"], { type: "audio/webm" }),
       mimeType: "audio/webm",
       durationMs: 1000,
+      endedBy: fake.endedBy,
     })),
     cancel: vi.fn(async () => undefined),
-    subscribe: () => () => undefined,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     dispose: () => undefined,
   };
+  return fake;
 }
 
 describe("DictationFlowService", () => {
   it("runs transcription and cleanup in order", async () => {
     const audio = recorder();
     const groq: InferenceClient = {
-      ensureReady: vi.fn(async () => undefined),
+      checkReady: vi.fn(() => undefined),
       transcribe: vi.fn(async () => ({ text: "hello world" })),
       cleanup: vi.fn(async () => ({ text: "Hello, world." })),
       rewrite: vi.fn(async () => ({ text: "Rewritten." })),
@@ -59,7 +77,7 @@ describe("DictationFlowService", () => {
 
   it("falls back to raw text when cleanup fails", async () => {
     const groq: InferenceClient = {
-      ensureReady: vi.fn(async () => undefined),
+      checkReady: vi.fn(() => undefined),
       transcribe: vi.fn(async () => ({ text: "raw words" })),
       cleanup: vi.fn(async () => { throw new Error("cleanup failed"); }),
       rewrite: vi.fn(async () => ({ text: "Rewritten." })),
@@ -80,7 +98,7 @@ describe("DictationFlowService", () => {
       recorder: audio,
       settings: settingsRepository({ cleanupEnabled: true, language: "" }),
       inference: {
-        ensureReady: vi.fn(async () => {
+        checkReady: vi.fn(() => {
           throw new AdapterError("no key", { code: "missing-api-key" });
         }),
         transcribe: vi.fn(),
@@ -94,15 +112,15 @@ describe("DictationFlowService", () => {
     expect(audio.states).toEqual([]);
   });
 
-  it("releases the microphone when readiness lapses between start and stop", async () => {
+  it("keeps the recording when readiness lapses between start and stop", async () => {
     const audio = recorder();
-    const transcribe = vi.fn();
+    const transcribe = vi.fn(async () => ({ text: "kept words" }));
     let ready = true;
     const flow = new DictationFlowService({
       recorder: audio,
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
       inference: {
-        ensureReady: vi.fn(async () => {
+        checkReady: vi.fn(() => {
           if (!ready) {
             throw new AdapterError("session ended", { code: "not-authenticated" });
           }
@@ -117,9 +135,58 @@ describe("DictationFlowService", () => {
     ready = false;
 
     await expect(flow.stop()).rejects.toMatchObject({ code: "not-authenticated" });
-    // No upload was attempted, and the microphone is not left running.
+    // No upload was attempted -- but the recording was NOT thrown away, so
+    // signing back in and retrying costs the user nothing.
     expect(transcribe).not.toHaveBeenCalled();
-    expect(audio.cancel).toHaveBeenCalledTimes(1);
+    expect(audio.cancel).not.toHaveBeenCalled();
+    expect(flow.getSnapshot().canRetry).toBe(true);
+
+    ready = true;
+    await expect(flow.retryUpload()).resolves.toMatchObject({ finalText: "kept words" });
+    expect(flow.getSnapshot().canRetry).toBe(false);
+  });
+
+  it("transcribes a recording the recorder ended by itself, and says why", async () => {
+    const audio = recorder();
+    audio.endedBy = "duration-limit";
+    const flow = new DictationFlowService({
+      recorder: audio,
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: {
+        checkReady: vi.fn(() => undefined),
+        transcribe: vi.fn(async () => ({ text: "five minutes of words" })),
+        cleanup: vi.fn(),
+        rewrite: vi.fn(),
+      },
+    });
+
+    await flow.start();
+    // No stop() call: the adapter hit the limit and published the state.
+    audio.emit("auto-stopped");
+    await vi.waitUntil(() => flow.state === "completed");
+
+    expect(flow.result?.finalText).toBe("five minutes of words");
+    expect(flow.getSnapshot().notice).toContain("five-minute limit");
+  });
+
+  it("holds the recording for a retry when the upload fails", async () => {
+    const transcribe = vi.fn<() => Promise<{ text: string }>>()
+      .mockRejectedValueOnce(new AdapterError("offline", { code: "api-server", retryable: true }))
+      .mockResolvedValueOnce({ text: "second try" });
+    const flow = new DictationFlowService({
+      recorder: recorder(),
+      settings: settingsRepository({ cleanupEnabled: false, language: "" }),
+      inference: { checkReady: vi.fn(() => undefined), transcribe, cleanup: vi.fn(), rewrite: vi.fn() },
+    });
+
+    await flow.start();
+    await expect(flow.stop()).rejects.toMatchObject({ code: "api-server" });
+    expect(flow.getSnapshot()).toMatchObject({ state: "error", canRetry: true });
+
+    await expect(flow.retryUpload()).resolves.toMatchObject({ finalText: "second try" });
+    expect(transcribe).toHaveBeenCalledTimes(2);
+    // Delivered, so the audio is gone and there is nothing left to retry.
+    expect(flow.getSnapshot().canRetry).toBe(false);
   });
 
   it("does not start a duplicate stop operation", async () => {
@@ -127,7 +194,7 @@ describe("DictationFlowService", () => {
     const flow = new DictationFlowService({
       recorder: audio,
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
-       inference: { ensureReady: vi.fn(async () => undefined), transcribe: vi.fn(async () => ({ text: "hello" })), cleanup: vi.fn(), rewrite: vi.fn() },
+       inference: { checkReady: vi.fn(() => undefined), transcribe: vi.fn(async () => ({ text: "hello" })), cleanup: vi.fn(), rewrite: vi.fn() },
     });
     await flow.start();
     const first = flow.stop();
@@ -142,7 +209,7 @@ describe("DictationFlowService", () => {
       recorder: recorder(),
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
       inference: {
-        ensureReady: vi.fn(async () => undefined),
+        checkReady: vi.fn(() => undefined),
         transcribe: vi.fn(({ signal }): Promise<{ text: string }> => new Promise((_resolve, reject) => {
           signal?.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")));
         })),
@@ -165,7 +232,7 @@ describe("DictationFlowService", () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
-       inference: { ensureReady: vi.fn(async () => undefined), transcribe: vi.fn(async () => { throw new Error("network"); }), cleanup: vi.fn(), rewrite: vi.fn() },
+       inference: { checkReady: vi.fn(() => undefined), transcribe: vi.fn(async () => { throw new Error("network"); }), cleanup: vi.fn(), rewrite: vi.fn() },
     });
     await flow.start();
 
@@ -190,7 +257,7 @@ describe("DictationFlowService", () => {
       recorder: recorder(),
       settings: settingsRepository({ cleanupEnabled: true, language: "" }),
       inference: {
-        ensureReady: vi.fn(async () => undefined),
+        checkReady: vi.fn(() => undefined),
         transcribe: vi.fn(async () => ({ text: "hello world" })),
         cleanup: vi.fn(async () => ({ text: "Hello, world." })),
         rewrite,
@@ -214,7 +281,7 @@ describe("DictationFlowService", () => {
       recorder: recorder(),
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
       inference: {
-        ensureReady: vi.fn(async () => undefined),
+        checkReady: vi.fn(() => undefined),
         transcribe: vi.fn(async () => ({ text: "original" })),
         cleanup: vi.fn(),
         rewrite: vi.fn(async () => { throw new Error("rewrite failed"); }),
@@ -233,7 +300,7 @@ describe("DictationFlowService", () => {
       recorder: recorder(),
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
       inference: {
-        ensureReady: vi.fn(async () => undefined),
+        checkReady: vi.fn(() => undefined),
         transcribe: vi.fn(async () => ({ text: "original" })),
         cleanup: vi.fn(),
         rewrite: vi.fn(({ signal }): Promise<{ text: string }> => new Promise((_resolve, reject) => {
@@ -259,7 +326,7 @@ describe("DictationFlowService", () => {
     const flow = new DictationFlowService({
       recorder: recorder(),
       settings: settingsRepository({ cleanupEnabled: false, language: "" }),
-      inference: { ensureReady: vi.fn(async () => undefined), transcribe: vi.fn(async () => ({ text: "original" })), cleanup: vi.fn(), rewrite },
+      inference: { checkReady: vi.fn(() => undefined), transcribe: vi.fn(async () => ({ text: "original" })), cleanup: vi.fn(), rewrite },
     });
 
     await expect(flow.rewrite("Change it")).rejects.toMatchObject({ code: "recording-invalid" });

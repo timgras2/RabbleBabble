@@ -26,8 +26,8 @@ export class LocalAuthSession implements AuthSession {
     return Promise.resolve(SIGNED_IN);
   }
 
-  ensureSignedIn(): Promise<void> {
-    return Promise.resolve();
+  requireSignedIn(): void {
+    // This build has no accounts, so there is nothing to be signed out of.
   }
 
   requestMagicLink(): Promise<void> {

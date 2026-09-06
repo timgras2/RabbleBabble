@@ -6,8 +6,12 @@ import type {
   AudioRecorder,
   AudioRecorderOptions,
   AudioRecording,
+  RecordingEndCause,
   RecordingState,
 } from "./types";
+
+/** Internal: which self-imposed stop condition fired, before it is reported. */
+type RecordingLimitKind = "duration" | "bytes" | "interrupted";
 
 const DEFAULT_MAX_DURATION_MS = MAX_AUDIO_MS;
 const DEFAULT_MAX_BYTES = MAX_AUDIO_BYTES;
@@ -23,14 +27,18 @@ export class MediaRecorderAdapter implements AudioRecorder {
   private chunks: Blob[] = [];
   private recordedBytes = 0;
   private mimeType = "";
-  private startedAt = 0;
+  private startedAtMs = 0;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private stopResolve: ((recording: AudioRecording) => void) | null = null;
   private stopReject: ((error: unknown) => void) | null = null;
   private cancelResolve: (() => void) | null = null;
   private cancelled = false;
-  private limitError: AdapterError | null = null;
-  private autoStopped = false;
+  private limitReached: RecordingLimitKind | null = null;
+  /**
+   * The audio of a recording the recorder ended by itself. Held until stop()
+   * consumes it: dropping it here was the bug that lost five-minute takes.
+   */
+  private pendingRecording: AudioRecording | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private visibilityHandler: (() => void) | null = null;
   private audioContext: AudioContext | null = null;
@@ -47,6 +55,10 @@ export class MediaRecorderAdapter implements AudioRecorder {
 
   get state(): RecordingState {
     return this.currentState;
+  }
+
+  get startedAt(): number | null {
+    return this.startedAtMs === 0 ? null : this.startedAtMs;
   }
 
   getInputLevel(): number | null {
@@ -81,14 +93,21 @@ export class MediaRecorderAdapter implements AudioRecorder {
       });
     }
 
+    // Boundary rule 11: getUserMedia is reached with no awaited promise between
+    // it and the tap that authorised it, or WebKit refuses without prompting.
+    const pending = navigator.mediaDevices.getUserMedia({
+      audio: this.options.audio ?? true,
+    });
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: this.options.audio ?? true,
-      });
+      this.stream = await pending;
       this.mimeType = negotiateMimeType(this.options.preferredMimeTypes);
-      this.mediaRecorder = this.mimeType
-        ? new MediaRecorder(this.stream, { mimeType: this.mimeType })
-        : new MediaRecorder(this.stream);
+      const recorderOptions: MediaRecorderOptions = {
+        ...(this.mimeType ? { mimeType: this.mimeType } : {}),
+        ...(this.options.audioBitsPerSecond === undefined
+          ? {}
+          : { audioBitsPerSecond: this.options.audioBitsPerSecond }),
+      };
+      this.mediaRecorder = new MediaRecorder(this.stream, recorderOptions);
     } catch (error) {
       this.releaseResources();
       throw this.mapMicrophoneError(error);
@@ -97,9 +116,9 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.chunks = [];
     this.recordedBytes = 0;
     this.cancelled = false;
-    this.limitError = null;
-    this.autoStopped = false;
-    this.startedAt = Date.now();
+    this.limitReached = null;
+    this.pendingRecording = null;
+    this.startedAtMs = Date.now();
     this.bindRecorderEvents();
     this.setState("recording");
     try {
@@ -112,14 +131,40 @@ export class MediaRecorderAdapter implements AudioRecorder {
       });
     }
     this.durationTimer = setTimeout(() => {
-      this.limitError = new AdapterError("Recording exceeded the five-minute limit.", {
-        code: "recording-too-long",
-      });
+      this.limitReached = "duration";
       this.finishStop();
     }, this.options.maxDurationMs);
     this.installVisibilityHandler();
+    this.installTrackHandlers();
     this.attachLevelAnalyser();
     void this.acquireWakeLock();
+  }
+
+  /**
+   * A phone call, another app, or an unplugged headset takes the microphone and
+   * MediaRecorder keeps happily producing silence. Ending the recording here is
+   * what stops a silent upload from being metered and billed.
+   */
+  private installTrackHandlers(): void {
+    for (const track of this.stream?.getAudioTracks() ?? []) {
+      track.addEventListener("ended", this.onTrackLost);
+      track.addEventListener("mute", this.onTrackLost);
+    }
+  }
+
+  private readonly onTrackLost = (): void => {
+    if (this.currentState !== "recording" || this.limitReached !== null) {
+      return;
+    }
+    this.limitReached = "interrupted";
+    this.finishStop();
+  };
+
+  private removeTrackHandlers(): void {
+    for (const track of this.stream?.getAudioTracks() ?? []) {
+      track.removeEventListener("ended", this.onTrackLost);
+      track.removeEventListener("mute", this.onTrackLost);
+    }
   }
 
   /** Feeds the level meter. Purely an enhancement -- failure must not stop a recording. */
@@ -140,6 +185,12 @@ export class MediaRecorderAdapter implements AudioRecorder {
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.6;
       context.createMediaStreamSource(this.stream).connect(analyser);
+      // On iOS a context constructed outside a live user activation starts
+      // suspended and never produces samples, so the meter -- and the silence
+      // detection that reads the same analyser -- would read a flat line.
+      if (context.state === "suspended") {
+        void context.resume().catch(() => undefined);
+      }
       this.audioContext = context;
       this.analyser = analyser;
       this.levelBuffer = new Uint8Array(new ArrayBuffer(analyser.fftSize));
@@ -159,16 +210,19 @@ export class MediaRecorderAdapter implements AudioRecorder {
   }
 
   stop(): Promise<AudioRecording> {
+    // The recorder already ended itself. Hand over what it kept, rather than
+    // rejecting -- the words are on the instance and the user still wants them.
+    if (this.currentState === "auto-stopped") {
+      const recording = this.pendingRecording;
+      this.pendingRecording = null;
+      this.limitReached = null;
+      this.setState("idle");
+      return recording === null
+        ? Promise.reject(this.invalidState("The recording could not be recovered."))
+        : Promise.resolve(recording);
+    }
     if (this.currentState !== "recording") {
       return Promise.reject(this.invalidState("There is no active recording to stop."));
-    }
-
-    if (this.autoStopped && this.limitError) {
-      const error = this.limitError;
-      this.autoStopped = false;
-      this.limitError = null;
-      this.setState("idle");
-      return Promise.reject(error);
     }
 
     this.setState("stopping");
@@ -181,6 +235,12 @@ export class MediaRecorderAdapter implements AudioRecorder {
 
   async cancel(): Promise<void> {
     if (this.currentState === "disposed" || this.currentState === "idle") {
+      return;
+    }
+    if (this.currentState === "auto-stopped") {
+      this.pendingRecording = null;
+      this.limitReached = null;
+      this.setState("idle");
       return;
     }
     if (this.currentState === "recording") {
@@ -216,6 +276,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.stopResolve = null;
     this.stopReject = null;
     this.cancelResolve = null;
+    this.pendingRecording = null;
     this.releaseResources();
     this.setState("disposed");
     this.listeners.clear();
@@ -229,10 +290,8 @@ export class MediaRecorderAdapter implements AudioRecorder {
       if (event.data.size > 0) {
         this.chunks.push(event.data);
         this.recordedBytes += event.data.size;
-        if (this.recordedBytes > this.options.maxBytes && !this.limitError) {
-          this.limitError = new AdapterError("Recording exceeded the 25 MB limit.", {
-            code: "recording-too-large",
-          });
+        if (this.recordedBytes > this.options.maxBytes && this.limitReached === null) {
+          this.limitReached = "bytes";
           this.finishStop();
         }
       }
@@ -265,15 +324,26 @@ export class MediaRecorderAdapter implements AudioRecorder {
       this.stopReject = null;
       return;
     }
-    const durationMs = Math.max(0, Date.now() - this.startedAt);
-    const mimeType = this.mediaRecorder?.mimeType || this.mimeType || "audio/webm";
+    const durationMs = Math.max(0, Date.now() - this.startedAtMs);
+    // "audio/webm" as a blind default labels Safari's MPEG-4 bytes as WebM and
+    // Groq rejects them. Only ever report a container we actually negotiated.
+    const mimeType = this.mediaRecorder?.mimeType || this.mimeType;
+    if (!mimeType) {
+      this.failStop(
+        new AdapterError("The browser did not report a recording format.", {
+          code: "recording-invalid",
+        }),
+      );
+      return;
+    }
     const blob = new Blob(this.chunks, { type: mimeType });
     const resolve = this.stopResolve;
     const reject = this.stopReject;
     const cancelled = this.cancelled;
-    const limitError = this.limitError;
+    const limitReached = this.limitReached;
     const cancelResolve = this.cancelResolve;
     const hasConsumer = Boolean(resolve || reject || cancelResolve);
+    const recording: AudioRecording = { blob, mimeType, durationMs, endedBy: endCause(limitReached) };
 
     this.stopResolve = null;
     this.stopReject = null;
@@ -282,21 +352,18 @@ export class MediaRecorderAdapter implements AudioRecorder {
 
     if (cancelled) {
       this.setState("idle");
-      resolve?.({ blob, mimeType, durationMs });
+      resolve?.(recording);
       cancelResolve?.();
       return;
     }
-    if (limitError) {
-      if (hasConsumer) {
-        this.setState("idle");
-        reject?.(limitError);
-      } else {
-        // Keep the flow's stop action available to surface the limit error.
-        this.autoStopped = true;
-      }
+    if (limitReached !== null && !hasConsumer) {
+      // Nobody is waiting on stop(), so the recorder ended itself. Keep the
+      // audio and publish the state: silently dropping both was the bug.
+      this.pendingRecording = recording;
+      this.setState("auto-stopped");
       return;
     }
-    if (blob.size > this.options.maxBytes) {
+    if (limitReached === null && blob.size > this.options.maxBytes) {
       this.setState("idle");
       reject?.(
         new AdapterError("Recording exceeded the 25 MB limit.", {
@@ -306,8 +373,9 @@ export class MediaRecorderAdapter implements AudioRecorder {
       return;
     }
 
+    this.limitReached = null;
     this.setState("idle");
-    resolve?.({ blob, mimeType, durationMs });
+    resolve?.(recording);
   }
 
   private failStop(error: AdapterError): void {
@@ -363,6 +431,7 @@ export class MediaRecorderAdapter implements AudioRecorder {
       this.visibilityHandler = null;
     }
     this.releaseLevelAnalyser();
+    this.removeTrackHandlers();
     for (const track of this.stream?.getTracks() ?? []) {
       track.stop();
     }
@@ -406,8 +475,22 @@ export class MediaRecorderAdapter implements AudioRecorder {
     this.releaseResources();
     this.setState("idle");
     this.chunks = [];
-    this.limitError = null;
-    this.startedAt = 0;
+    this.limitReached = null;
+    this.pendingRecording = null;
+    this.startedAtMs = 0;
     this.mediaRecorder = null;
+  }
+}
+
+function endCause(limitReached: RecordingLimitKind | null): RecordingEndCause {
+  switch (limitReached) {
+    case "duration":
+      return "duration-limit";
+    case "bytes":
+      return "byte-limit";
+    case "interrupted":
+      return "interrupted";
+    default:
+      return "user";
   }
 }

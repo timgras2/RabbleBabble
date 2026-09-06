@@ -27,15 +27,19 @@ export interface RewriteResponse {
  */
 export interface InferenceClient {
   /**
-   * Resolves when a request would be accepted right now, and rejects with an
+   * Returns when a request would be accepted right now, and throws an
    * AdapterError otherwise: "missing-api-key" in bring-your-own-key builds,
    * "not-authenticated" or "quota-exceeded" in service builds.
    *
-   * Callers must await this BEFORE recording starts, never after, so a dead
-   * session costs the user no speech. It performs no network round trip: each
-   * adapter answers from state it already holds.
+   * Callers check this BEFORE recording starts, never after, so a dead session
+   * costs the user no speech.
+   *
+   * **Synchronous by contract.** It performs no I/O -- each adapter answers
+   * from state it already holds -- and it sits between the record tap and
+   * getUserMedia, where a single await loses the user activation WebKit needs
+   * to prompt for the microphone. See boundary rule 11 in architecture.md.
    */
-  ensureReady(): Promise<void>;
+  checkReady(): void;
 
   transcribe(request: {
     readonly audio: AudioRecording;

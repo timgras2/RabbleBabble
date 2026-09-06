@@ -118,6 +118,13 @@ the GitHub Pages path `/RabbleBabble/`; local Android testing uses an HTTPS LAN 
 9. `worker/` may import from `src/shared/` and nothing else in `src/`. Enforced by lint.
 10. Only `src/app/mode.ts` reads the build-mode constants. Everything else branches on
     the exported `SERVICE_MODE`, so the unused adapter is eliminated from each bundle.
+11. **Nothing may be awaited between a user gesture and the browser API that gesture
+    authorises.** WebKit refuses `getUserMedia` outright -- with `NotAllowedError`,
+    indistinguishable from a real denial -- when the user activation has not survived to
+    the call, and the clipboard behaves the same way. Readiness checks on that path are
+    therefore synchronous by contract: `InferenceClient.checkReady()` and
+    `AuthSession.requireSignedIn()` answer from state they already hold. This rule has
+    now cost two bugs; `src/ui/gesturePreservation.test.tsx` enforces it without Safari.
 
 ## 4. Interface Contracts
 

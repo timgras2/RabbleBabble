@@ -68,13 +68,15 @@ export class HttpAuthSession implements AuthSession {
     return operation;
   }
 
-  async ensureSignedIn(): Promise<void> {
-    const state = this.state.status === "unknown" ? await this.refresh() : this.state;
-
+  requireSignedIn(): void {
+    const state = this.state;
     if (state.status === "signed-in") {
       return;
     }
     if (state.status === "unknown") {
+      // Cannot await the answer here without losing the microphone gesture, so
+      // start the check for next time and report what we know now.
+      void this.refresh();
       throw (
         state.error ??
         new AdapterError("Could not reach RabbleBabble.", { code: "offline", retryable: true })

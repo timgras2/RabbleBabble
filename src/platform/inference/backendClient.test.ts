@@ -14,7 +14,7 @@ function fakeSession(overrides: Partial<AuthSession> = {}, state: AuthState = SI
   return {
     get: () => state,
     refresh: vi.fn(async () => state),
-    ensureSignedIn: vi.fn(async () => undefined),
+    requireSignedIn: vi.fn(() => undefined),
     requestMagicLink: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
     markSignedOut: vi.fn(),
@@ -32,7 +32,7 @@ function apiError(code: string, status: number, retryable = false): Response {
   return jsonResponse({ error: { code, reason: "invalid-body", message: "nope", retryable, requestId: "r1" } }, status);
 }
 
-const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000 };
+const audio = { blob: new Blob(["audio"], { type: "audio/webm" }), mimeType: "audio/webm", durationMs: 1000, endedBy: "user" as const };
 
 describe("BackendClient", () => {
   it("posts raw audio bytes with no credential of its own", async () => {
@@ -122,7 +122,7 @@ describe("BackendClient", () => {
     const huge = {
       blob: new Blob([new Uint8Array(26_214_401)], { type: "audio/webm" }),
       mimeType: "audio/webm",
-      durationMs: 1000,
+      durationMs: 1000, endedBy: "user" as const
     };
 
     await expect(client.transcribe({ audio: huge })).rejects.toMatchObject({ code: "recording-too-large" });
@@ -142,17 +142,17 @@ describe("BackendClient", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  describe("ensureReady", () => {
-    it("defers to the session", async () => {
-      const ensureSignedIn = vi.fn(async () => {
+  describe("checkReady", () => {
+    it("defers to the session", () => {
+      const requireSignedIn = vi.fn(() => {
         throw new AdapterError("nope", { code: "not-authenticated" });
       });
-      const client = new BackendClient({ fetcher: vi.fn<typeof fetch>(), session: fakeSession({ ensureSignedIn }) });
+      const client = new BackendClient({ fetcher: vi.fn<typeof fetch>(), session: fakeSession({ requireSignedIn }) });
 
-      await expect(client.ensureReady()).rejects.toMatchObject({ code: "not-authenticated" });
+      expect(() => client.checkReady()).toThrowError(expect.objectContaining({ code: "not-authenticated" }));
     });
 
-    it("refuses before recording when the day's allowance is already spent", async () => {
+    it("refuses before recording when the day's allowance is already spent", () => {
       const spent: AuthState = {
         ...SIGNED_IN,
         quota: {
@@ -169,7 +169,7 @@ describe("BackendClient", () => {
       });
 
       // Better here than after a minute of speech.
-      await expect(client.ensureReady()).rejects.toMatchObject({ code: "quota-exceeded" });
+      expect(() => client.checkReady()).toThrowError(expect.objectContaining({ code: "quota-exceeded" }));
     });
   });
 });

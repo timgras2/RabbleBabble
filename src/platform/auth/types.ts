@@ -44,11 +44,15 @@ export interface AuthSession {
   refresh(): Promise<AuthState>;
 
   /**
-   * Resolves once the status is known and signed in. Rejects with
-   * "not-authenticated" when signed out, or "offline" when the status could
-   * not be established at all.
+   * Returns when the cached status is signed in, and throws otherwise:
+   * "not-authenticated" when signed out, or the last transport failure when
+   * the status could not be established at all.
+   *
+   * **Synchronous by contract.** It answers from the cached snapshot and never
+   * awaits, because it is called between the record tap and getUserMedia. It
+   * may kick off a background refresh, but must not wait for one.
    */
-  ensureSignedIn(): Promise<void>;
+  requireSignedIn(): void;
 
   requestMagicLink(request: {
     readonly email: string;

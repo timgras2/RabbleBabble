@@ -1,9 +1,15 @@
 import { AdapterError } from "../platform/errors";
-import type { AudioRecorder } from "../platform/audio/types";
+import type { AdapterErrorCode } from "../platform/errors";
+import type { AudioRecorder, AudioRecording } from "../platform/audio/types";
 import type { InferenceClient } from "../platform/inference/types";
 import type { SettingsRepository } from "../platform/storage/types";
 import type { Unsubscribe } from "../platform/types";
-import type { DictationFlow, DictationResult, DictationState } from "./types";
+import type {
+  DictationFlow,
+  DictationResult,
+  DictationSnapshot,
+  DictationState,
+} from "./types";
 
 export interface DictationFlowDependencies {
   readonly recorder: AudioRecorder;
@@ -11,74 +17,106 @@ export interface DictationFlowDependencies {
   readonly inference: InferenceClient;
 }
 
+const AUTO_STOP_NOTICES: Record<string, string> = {
+  "duration-limit": "Stopped at the five-minute limit - transcribing what you said.",
+  "byte-limit": "Stopped at the 25 MB limit - transcribing what you said.",
+  interrupted: "Something else took the microphone - transcribing what you said.",
+};
+
 export class DictationFlowService implements DictationFlow {
-  private currentState: DictationState = "idle";
-  private currentResult: DictationResult | null = null;
-  private readonly listeners = new Set<(state: DictationState) => void>();
+  private snapshot: DictationSnapshot = {
+    state: "idle",
+    result: null,
+    error: null,
+    notice: null,
+    canRetry: false,
+  };
+  private readonly listeners = new Set<() => void>();
   private readonly dependencies: DictationFlowDependencies;
+  private readonly unsubscribeRecorder: Unsubscribe;
   private controller: AbortController | null = null;
   private activeStop: Promise<DictationResult> | null = null;
   private activeRewrite: Promise<DictationResult> | null = null;
   private cancelRequested = false;
   private stopRequested = false;
+  /**
+   * The recording currently in flight. Held on the service rather than in a
+   * local, so a failed upload does not take the user's words with it.
+   */
+  private heldAudio: AudioRecording | null = null;
 
   constructor(dependencies: DictationFlowDependencies) {
     this.dependencies = dependencies;
+    this.unsubscribeRecorder = dependencies.recorder.subscribe((state) => {
+      if (state === "auto-stopped") {
+        this.absorbAutoStop();
+      }
+    });
+  }
+
+  getSnapshot(): DictationSnapshot {
+    return this.snapshot;
   }
 
   get state(): DictationState {
-    return this.currentState;
+    return this.snapshot.state;
   }
 
   get result(): DictationResult | null {
-    return this.currentResult;
+    return this.snapshot.result;
   }
 
   async start(): Promise<void> {
-    if (this.activeStop || this.activeRewrite || !["idle", "completed", "error"].includes(this.currentState)) {
+    if (this.activeStop || this.activeRewrite || !["idle", "completed", "error"].includes(this.snapshot.state)) {
       throw this.invalidTransition("Finish or cancel the current operation first.");
     }
+
+    // Synchronous on purpose. Awaiting anything here drops the user activation
+    // that WebKit requires to even prompt for the microphone -- boundary rule 11.
     try {
-      await this.dependencies.inference.ensureReady();
+      this.dependencies.inference.checkReady();
     } catch (error) {
-      this.setState("error");
+      this.patch({ state: "error", error: asAdapterError(error) });
       throw error;
     }
 
+    this.heldAudio = null;
+    // Invoked, not awaited, before the first await in this function.
+    const starting = this.dependencies.recorder.start();
     try {
-      await this.dependencies.recorder.start();
-      this.currentResult = null;
+      await starting;
       this.cancelRequested = false;
       this.stopRequested = false;
-      this.setState("recording");
+      this.patch({ state: "recording", result: null, error: null, notice: null, canRetry: false });
     } catch (error) {
-      const code = error instanceof AdapterError ? error.code : undefined;
-      this.setState(code === "mic-denied" || code === "mic-unavailable" ? "idle" : "error");
+      const adapterError = asAdapterError(error);
+      const code = adapterError.code;
+      this.patch({
+        state: code === "mic-denied" || code === "mic-unavailable" ? "idle" : "error",
+        error: adapterError,
+      });
       throw error;
     }
   }
 
   stop(): Promise<DictationResult> {
-    if (this.currentState !== "recording" || this.stopRequested) {
+    if (this.snapshot.state !== "recording" || this.stopRequested) {
       return Promise.reject(this.invalidTransition("Start a recording before stopping it."));
     }
+    return this.track(this.runStop());
+  }
+
+  retryUpload(): Promise<DictationResult> {
+    const audio = this.heldAudio;
+    if (audio === null || this.activeStop || this.activeRewrite) {
+      return Promise.reject(this.invalidTransition("There is no held recording to send again."));
+    }
     this.stopRequested = true;
-    const operation = this.runStop();
-    this.activeStop = operation;
-    void operation.then(() => {
-      if (this.activeStop === operation) {
-        this.activeStop = null;
-      }
-    }, () => {
-      if (this.activeStop === operation) {
-        this.activeStop = null;
-      }
-    });
-    return operation;
+    return this.track(this.runDelivery(audio));
   }
 
   rewrite(instruction: string): Promise<DictationResult> {
-    if (this.activeStop || this.activeRewrite || this.currentState !== "completed" || !this.currentResult) {
+    if (this.activeStop || this.activeRewrite || this.snapshot.state !== "completed" || !this.snapshot.result) {
       return Promise.reject(this.invalidTransition("Complete a transcript before rewriting it."));
     }
     if (!instruction.trim()) {
@@ -90,20 +128,19 @@ export class DictationFlowService implements DictationFlow {
     this.cancelRequested = false;
     const operation = this.runRewrite(instruction);
     this.activeRewrite = operation;
-    void operation.then(() => {
-      if (this.activeRewrite === operation) {
-        this.activeRewrite = null;
-      }
-    }, () => {
-      if (this.activeRewrite === operation) {
-        this.activeRewrite = null;
-      }
-    });
+    void operation.then(
+      () => {
+        if (this.activeRewrite === operation) this.activeRewrite = null;
+      },
+      () => {
+        if (this.activeRewrite === operation) this.activeRewrite = null;
+      },
+    );
     return operation;
   }
 
   async cancel(): Promise<void> {
-    if (this.currentState === "rewriting" || this.activeRewrite) {
+    if (this.snapshot.state === "rewriting" || this.activeRewrite) {
       this.cancelRequested = true;
       this.controller?.abort();
       if (this.activeRewrite) {
@@ -112,12 +149,10 @@ export class DictationFlowService implements DictationFlow {
       this.controller = null;
       this.cancelRequested = false;
       this.stopRequested = false;
-      if (this.currentState !== "completed") {
-        this.setState("completed");
-      }
+      this.patch({ state: "completed", error: null });
       return;
     }
-    if (this.currentState === "recording") {
+    if (this.snapshot.state === "recording") {
       this.cancelRequested = true;
       try {
         await this.dependencies.recorder.cancel();
@@ -130,34 +165,77 @@ export class DictationFlowService implements DictationFlow {
       await this.activeStop.catch(() => undefined);
     }
     this.controller = null;
-    this.currentResult = null;
+    this.heldAudio = null;
     this.cancelRequested = false;
     this.stopRequested = false;
-    if (this.currentState !== "idle") {
-      this.setState("idle");
-    }
+    this.patch({ state: "idle", result: null, error: null, notice: null, canRetry: false });
   }
 
-  subscribe(listener: (state: DictationState) => void): Unsubscribe {
+  subscribe(listener: () => void): Unsubscribe {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
+  dispose(): void {
+    this.unsubscribeRecorder();
+    this.listeners.clear();
+  }
+
+  /**
+   * The recorder hit a limit or lost the microphone on its own. Take the audio
+   * it kept and run the normal transcribe path, saying why it ended.
+   */
+  private absorbAutoStop(): void {
+    if (this.snapshot.state !== "recording" || this.stopRequested || this.activeStop) {
+      return;
+    }
+    void this.track(this.runStop()).catch(() => undefined);
+  }
+
+  private track(operation: Promise<DictationResult>): Promise<DictationResult> {
+    this.stopRequested = true;
+    this.activeStop = operation;
+    void operation.then(
+      () => {
+        if (this.activeStop === operation) this.activeStop = null;
+      },
+      () => {
+        if (this.activeStop === operation) this.activeStop = null;
+      },
+    );
+    return operation;
+  }
+
   private async runStop(): Promise<DictationResult> {
+    let audio: AudioRecording;
+    try {
+      audio = await this.dependencies.recorder.stop();
+    } catch (error) {
+      this.stopRequested = false;
+      if (this.cancelRequested) {
+        this.patch({ state: "idle", result: null, notice: null });
+      } else {
+        this.patch({ state: "error", error: asAdapterError(error) });
+      }
+      throw error;
+    }
+    this.heldAudio = audio;
+    if (audio.endedBy !== "user") {
+      this.patch({ notice: AUTO_STOP_NOTICES[audio.endedBy] ?? null });
+    }
+    return this.runDelivery(audio);
+  }
+
+  private async runDelivery(audio: AudioRecording): Promise<DictationResult> {
     const controller = new AbortController();
     this.controller = controller;
     try {
       const settings = this.dependencies.settings.get();
-      try {
-        await this.dependencies.inference.ensureReady();
-      } catch (error) {
-        await this.dependencies.recorder.cancel();
-        throw error;
-      }
-
-      const audio = await this.dependencies.recorder.stop();
       this.throwIfCancelled(controller);
-      this.setState("transcribing");
+      // Re-checked here rather than before the recorder stops: a session that
+      // died mid-recording must not be a reason to throw the audio away.
+      this.dependencies.inference.checkReady();
+      this.patch({ state: "transcribing", error: null });
       const transcription = await this.dependencies.inference.transcribe({
         audio,
         language: settings.language,
@@ -169,10 +247,10 @@ export class DictationFlowService implements DictationFlow {
       let cleanupApplied = false;
       let cleanupFailed = false;
       if (settings.cleanupEnabled) {
-        this.setState("cleaning");
+        this.patch({ state: "cleaning" });
         try {
           const cleanup = await this.dependencies.inference.cleanup({
-                text: transcription.text,
+            text: transcription.text,
             signal: controller.signal,
           });
           this.throwIfCancelled(controller);
@@ -185,21 +263,29 @@ export class DictationFlowService implements DictationFlow {
         }
       }
 
+      // Delivered. The audio has done its job and must not outlive it.
+      this.heldAudio = null;
       const result: DictationResult = {
         rawText: transcription.text,
         finalText,
         cleanupApplied,
         cleanupFailed,
       };
-      this.currentResult = result;
-      this.setState("completed");
+      this.patch({ state: "completed", result, error: null, canRetry: false });
       return result;
     } catch (error) {
       if (this.cancelRequested || controller.signal.aborted) {
-        this.currentResult = null;
-        this.setState("idle");
+        this.heldAudio = null;
+        this.patch({ state: "idle", result: null, error: null, notice: null, canRetry: false });
       } else {
-        this.setState("error");
+        const adapterError = asAdapterError(error);
+        // The recording is still on the service, so the error can offer a
+        // retry that costs the user nothing. errorMessages.ts says as much.
+        this.patch({
+          state: "error",
+          error: adapterError,
+          canRetry: this.heldAudio !== null && isWorthRetrying(adapterError.code),
+        });
       }
       throw error;
     } finally {
@@ -211,7 +297,7 @@ export class DictationFlowService implements DictationFlow {
   }
 
   private async runRewrite(instruction: string): Promise<DictationResult> {
-    const previousResult = this.currentResult;
+    const previousResult = this.snapshot.result;
     if (!previousResult) {
       throw this.invalidTransition("Complete a transcript before rewriting it.");
     }
@@ -219,9 +305,9 @@ export class DictationFlowService implements DictationFlow {
     const controller = new AbortController();
     this.controller = controller;
     try {
-      await this.dependencies.inference.ensureReady();
+      this.dependencies.inference.checkReady();
 
-      this.setState("rewriting");
+      this.patch({ state: "rewriting", error: null });
       const rewrite = await this.dependencies.inference.rewrite({
         text: previousResult.finalText,
         instruction,
@@ -229,16 +315,16 @@ export class DictationFlowService implements DictationFlow {
       });
       this.throwIfCancelled(controller);
 
-      const result: DictationResult = {
-        ...previousResult,
-        finalText: rewrite.text,
-      };
-      this.currentResult = result;
-      this.setState("completed");
+      const result: DictationResult = { ...previousResult, finalText: rewrite.text };
+      this.patch({ state: "completed", result, error: null });
       return result;
     } catch (error) {
-      this.currentResult = previousResult;
-      this.setState("completed");
+      const adapterError = asAdapterError(error);
+      this.patch({
+        state: "completed",
+        result: previousResult,
+        error: adapterError.code === "cancelled" ? null : adapterError,
+      });
       throw error;
     } finally {
       if (this.controller === controller) {
@@ -249,9 +335,7 @@ export class DictationFlowService implements DictationFlow {
 
   private throwIfCancelled(controller: AbortController): void {
     if (this.cancelRequested || controller.signal.aborted) {
-      throw new AdapterError("Dictation was cancelled.", {
-        code: "cancelled",
-      });
+      throw new AdapterError("Dictation was cancelled.", { code: "cancelled" });
     }
   }
 
@@ -259,10 +343,52 @@ export class DictationFlowService implements DictationFlow {
     return new AdapterError(message, { code: "recording-invalid" });
   }
 
-  private setState(state: DictationState): void {
-    this.currentState = state;
+  private patch(change: Partial<DictationSnapshot>): void {
+    const next = { ...this.snapshot, ...change };
+    if (
+      next.state === this.snapshot.state &&
+      next.result === this.snapshot.result &&
+      next.error === this.snapshot.error &&
+      next.notice === this.snapshot.notice &&
+      next.canRetry === this.snapshot.canRetry
+    ) {
+      return;
+    }
+    this.snapshot = next;
     for (const listener of this.listeners) {
-      listener(state);
+      listener();
     }
   }
+}
+
+/**
+ * Whether sending the same bytes again could plausibly work -- after a
+ * reconnect, a sign-in, or simply a moment. Listed by exclusion, because the
+ * codes that genuinely cannot be retried are the short, closed set: the
+ * recording itself is unusable, or the user asked to stop.
+ */
+const NOT_WORTH_RETRYING = new Set<AdapterErrorCode>([
+  "recording-invalid",
+  "recording-too-long",
+  "recording-too-large",
+  "empty-transcript",
+  "invalid-instruction",
+  "rewrite-too-large",
+  "cancelled",
+  "clipboard-denied",
+  "clipboard-unavailable",
+]);
+
+function isWorthRetrying(code: AdapterErrorCode): boolean {
+  return !NOT_WORTH_RETRYING.has(code);
+}
+
+function asAdapterError(error: unknown): AdapterError {
+  if (error instanceof AdapterError) {
+    return error;
+  }
+  return new AdapterError("Something went wrong. Try again.", {
+    code: "api-server",
+    cause: error,
+  });
 }

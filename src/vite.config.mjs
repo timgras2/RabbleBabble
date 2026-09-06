@@ -124,7 +124,10 @@ export default defineConfig(({ command, mode }) => {
         },
       },
       VitePWA({
-        registerType: "autoUpdate",
+        // NOT "autoUpdate": that compiles to a location.reload() on controller
+        // change, so a deploy while the user held an uncopied transcript threw
+        // their words away. The app asks instead -- see src/pwa/register.ts.
+        registerType: "prompt",
         manifest: false,
         workbox: {
           globPatterns: ["**/*.{js,css,html,png,svg,ico}"],

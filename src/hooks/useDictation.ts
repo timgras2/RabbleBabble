@@ -1,68 +1,39 @@
-import { useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import type { AppServices } from "../app/types";
-import { AdapterError } from "../platform/errors";
-import type { DictationResult, DictationState } from "../services/types";
+import type { DictationSnapshot } from "../services/types";
 
+const IDLE: DictationSnapshot = {
+  state: "idle",
+  result: null,
+  error: null,
+  notice: null,
+  canRetry: false,
+};
+
+/**
+ * One subscription to one snapshot.
+ *
+ * State, result and error used to be read three different ways -- two of them
+ * component state -- so navigating away and back lost the error text while
+ * leaving the error state behind.
+ */
 export function useDictation(services: AppServices) {
   const flow = services.dictation;
-  const state = useSyncExternalStore(
+  const snapshot = useSyncExternalStore(
     (listener) => flow.subscribe(listener),
-    () => flow.state,
-    (): DictationState => "idle",
+    () => flow.getSnapshot(),
+    () => IDLE,
   );
-  const result = useSyncExternalStore(
-    (listener) => flow.subscribe(listener),
-    () => flow.result,
-    (): DictationResult | null => null,
-  );
-  const [error, setError] = useState<AdapterError | null>(null);
 
-  const start = async () => {
-    setError(null);
-    try {
-      await flow.start();
-    } catch (caught) {
-      setError(asAdapterError(caught));
-      throw caught;
-    }
+  return {
+    ...snapshot,
+    // Rejections are already recorded in the snapshot, so callers that only
+    // need to render never have to catch. start() still rethrows, because the
+    // recorder screen routes on the code.
+    start: () => flow.start(),
+    stop: () => flow.stop(),
+    retryUpload: () => flow.retryUpload(),
+    rewrite: (instruction: string) => flow.rewrite(instruction),
+    cancel: () => flow.cancel(),
   };
-
-  const stop = async () => {
-    try {
-      return await flow.stop();
-    } catch (caught) {
-      setError(asAdapterError(caught));
-      throw caught;
-    }
-  };
-
-  const rewrite = async (instruction: string) => {
-    setError(null);
-    try {
-      return await flow.rewrite(instruction);
-    } catch (caught) {
-      const error = asAdapterError(caught);
-      if (error.code !== "cancelled") {
-        setError(error);
-      }
-      throw caught;
-    }
-  };
-
-  const cancel = async () => {
-    await flow.cancel();
-    setError(null);
-  };
-
-  return { state, result, error, start, stop, rewrite, cancel };
-}
-
-function asAdapterError(error: unknown): AdapterError {
-  if (error instanceof AdapterError) {
-    return error;
-  }
-  return new AdapterError("Something went wrong. Try again.", {
-    code: "api-server",
-    cause: error,
-  });
 }

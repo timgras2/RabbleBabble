@@ -59,6 +59,14 @@
   --danger-border: #f6d5cc;
   --warn: #8a5a24;
 
+  /* Radius. The sign-in card referenced --radius-lg before anything declared
+     it, so it shipped square while every other card was 22px. */
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius: 15px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
   /* Depth */
   --lip: #d8d2c6;
   --shadow-card: 0 18px 48px rgba(23, 33, 43, 0.05);
@@ -272,9 +280,14 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
 
 .notice { width: 100%; align-self: safe end; margin: 0; padding: 15px 17px; border-radius: 15px; display: flex; align-items: flex-start; gap: 11px; font-size: 13px; line-height: 1.4; }
 .notice--error { color: var(--danger-ink); background: var(--danger-bg); border: 1px solid var(--danger-border); }
+/* Quiet, and above the fold rather than over the content: an update is never
+   more important than the words on the screen. */
+.update-banner { width: 100%; max-width: 700px; margin: 0 auto 12px; padding: 9px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-alt); color: var(--ink-3); font-size: 12px; }
+.notice--info { color: var(--ink-3); background: var(--surface-alt); border: 1px solid var(--border-strong); }
 .notice div { flex: 1; display: grid; gap: 2px; }
 .notice strong { font-size: 13px; }
-.notice span { color: var(--danger-ink-2); }
+.notice--error span { color: var(--danger-ink-2); }
+.notice--info span { color: var(--ink-3); }
 .text-button { align-self: center; min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--ink); font-size: 12px; font-weight: 800; white-space: nowrap; }
 .result-card { width: 100%; margin: 0; padding: 24px; border: 1px solid var(--border-strong); border-radius: 22px; background: var(--surface); }
 /* Sentence case, no tracking: the all-caps tracked label was decoration. */
@@ -348,6 +361,8 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
 
 /* Sign-in screen */
 .signin-screen {
+  display: flex;
+  flex-direction: column;
   gap: 1.25rem;
 }
 
@@ -358,7 +373,7 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
 
 .signin-sent {
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 1.1rem 1.15rem;
 }
