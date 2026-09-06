@@ -10,9 +10,20 @@ import {
 } from "../errors";
 
 const CHAT_TIMEOUT_MS = 30_000;
-const TRANSCRIPTION_TIMEOUT_MS = 120_000;
+/**
+ * Sized against the platform, not against Groq.
+ *
+ * Cloudflare's edge returns its own 524 at roughly 100s, so anything slower
+ * than that hands the user a Cloudflare error page instead of the JSON error
+ * envelope the entire client error model is built on. Two attempts at 45s
+ * plus one backoff is a 91s worst case; the old 3 x 120s was 363s.
+ */
+const TRANSCRIPTION_TIMEOUT_MS = 45_000;
 const RETRY_BACKOFF_MS = 1_000;
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS = 2;
+
+/** Bounds a runaway completion, which settle() is otherwise free to overshoot. */
+const MAX_COMPLETION_TOKENS = 2_048;
 
 export interface TranscriptionResult {
   readonly text: string;
@@ -81,7 +92,11 @@ export class GroqGateway {
       "/chat/completions",
       {
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: CLEANUP_MODEL, messages }),
+        body: JSON.stringify({
+          model: CLEANUP_MODEL,
+          messages,
+          max_completion_tokens: MAX_COMPLETION_TOKENS,
+        }),
       },
       { timeoutMs: CHAT_TIMEOUT_MS, retryTimeouts: true },
     );
@@ -128,6 +143,9 @@ export class GroqGateway {
       }
 
       if (response.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
+        // Assigned even here: without it a pure-5xx sequence logs
+        // `internal: "undefined"` for exactly the failure worth debugging.
+        lastError = new Error(`groq ${response.status}`);
         await backoff(attempt);
         continue;
       }

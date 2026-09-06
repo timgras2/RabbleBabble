@@ -66,17 +66,26 @@
 		"EMAIL_MODE": "resend",
 		"EMAIL_FROM": "RabbleBabble <login@send.rabblebabble.cc>",
 		"MAGIC_LINK_TTL_SECONDS": "900",
-		"SESSION_TTL_SECONDS": "31536000",
+		// 90 days, slid forward on the once-a-day touchSession write. A daily
+		// user is never signed out; an abandoned phone stops being a key.
+		"SESSION_TTL_SECONDS": "7776000",
 		"REQUIRE_SAME_DEVICE_LINK": "true",
-		"USER_DAILY_AUDIO_SECONDS": "10800",
-		"USER_DAILY_TRANSCRIBE_CALLS": "400",
-		"USER_DAILY_CHAT_CALLS": "200",
+		// Derived from the global cap and an expected 20 active users, rather
+		// than picked. At 40000 micros/hour, one hour of audio is ~40000 micros
+		// and 20 x 50000 lands exactly on the $1.00/day global budget. The old
+		// numbers did not express a policy at all: USER_DAILY_TRANSCRIBE_CALLS
+		// was 400 against a global budget that funds ~300 reservations, so a
+		// single account could starve the service for the day.
+		"USER_DAILY_AUDIO_SECONDS": "3600",
+		"USER_DAILY_TRANSCRIBE_CALLS": "60",
+		"USER_DAILY_CHAT_CALLS": "120",
+		"USER_DAILY_SPEND_MICROS": "50000",
+		// 0 is the emergency kill switch, and readConfig accepts it.
 		"GLOBAL_DAILY_SPEND_MICROS": "1000000",
 		"TRANSCRIBE_RESERVE_SECONDS": "300",
 		"PRICE_TRANSCRIBE_MICROS_PER_HOUR": "40000",
 		"PRICE_CHAT_IN_MICROS_PER_MTOK": "75000",
 		"PRICE_CHAT_OUT_MICROS_PER_MTOK": "300000",
-		"GROQ_BASE_URL": "https://api.groq.com/openai/v1",
-		"LOG_LEVEL": "info"
+		"GROQ_BASE_URL": "https://api.groq.com/openai/v1"
 	}
 }

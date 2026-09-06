@@ -23,6 +23,7 @@
     "deploy": "npm run build:service && wrangler deploy",
     "worker:types:check": "wrangler types worker/worker-configuration.d.ts --check",
     "invite:new": "node scripts/invite.mjs",
+    "user": "node scripts/user.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

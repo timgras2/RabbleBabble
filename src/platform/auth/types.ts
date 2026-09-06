@@ -60,7 +60,17 @@ export interface AuthSession {
     readonly signal?: AbortSignal;
   }): Promise<void>;
 
-  signOut(): Promise<void>;
+  /**
+   * `allDevices` revokes every session for the account, not just this one.
+   * Always sends a body: a missing one is indistinguishable from a false.
+   */
+  signOut(options?: { readonly allDevices?: boolean }): Promise<void>;
+
+  /**
+   * Erases the account and everything that cascades from it, then signs out.
+   * Irreversible, so the UI confirms before calling it.
+   */
+  deleteAccount(): Promise<void>;
 
   /** Records a 401 seen by another adapter, with no extra round trip. */
   markSignedOut(): void;

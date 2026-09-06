@@ -38,6 +38,10 @@ export class LocalAuthSession implements AuthSession {
     return Promise.reject(unavailable());
   }
 
+  deleteAccount(): Promise<void> {
+    return Promise.reject(unavailable());
+  }
+
   markSignedOut(): void {
     // Nothing to mark: this build has no session to lose.
   }

@@ -1,13 +1,13 @@
 import { MAX_AUTH_BODY_BYTES } from "../../../src/shared/limits";
 import type { RequestLinkResponse } from "../../../src/shared/wire";
 import type { App } from "../app";
-import { ApiError, invalidBody, rateLimited } from "../errors";
+import { ApiError, invalidBody, payloadTooLarge, rateLimited } from "../errors";
 import { requireClientHeader, requireSameSite } from "../http/guards";
 import { readJsonBody, readOptionalString, readString } from "../http/json";
 import { createUser, findUserByEmail, isPlausibleEmail, normaliseEmail } from "../db/users";
 import { consumeRateLimits, dayWindow, hourWindow } from "../db/rateLimits";
 import { EmailSendError, magicLinkEmail } from "../email/port";
-import { hashIp, isWellFormedToken, sha256Hex } from "./crypto";
+import { hashIp, isWellFormedToken, randomToken, sha256Hex } from "./crypto";
 import { consumeMagicLink, issueMagicLink } from "./magicLink";
 import { consumeInvite, hashInviteCode, isInviteUsable } from "./invites";
 import { interstitialResponse } from "./interstitial";
@@ -98,36 +98,52 @@ export function registerAuthRoutes(app: App): void {
 
     const response: { status: "sent"; devLink?: string } = { status: "sent" };
 
+    // ALWAYS set, with a throwaway value when there is no account. Setting it
+    // only inside the `userId !== null` branch made this one header the single
+    // account-existence oracle in a route that is otherwise byte-identical for
+    // known and unknown addresses.
+    let nonce = randomToken();
+
     if (userId !== null) {
       const link = await issueMagicLink(db, userId, now, config.magicLinkTtlSeconds, ipHash);
+      nonce = link.nonce;
       const url = `${config.appOrigin}/auth/callback?token=${link.token}`;
-      try {
-        await email.send(magicLinkEmail(address, url, Math.round(config.magicLinkTtlSeconds / 60)));
-      } catch (error) {
-        // Only reachable for an account that exists, so surfacing it would
-        // itself leak. Logged and swallowed - with the requestId, so it lines
-        // up with the request line app.ts writes for the same invocation.
-        // providerStatus, not status: app.ts already uses `status` for our own
-        // HTTP status, and two meanings for one key makes filtering useless.
-        console.error(
-          JSON.stringify({
-            requestId: c.get("requestId"),
-            event: "magic-link-send-failed",
-            providerStatus: error instanceof EmailSendError ? error.status : null,
-            detail: error instanceof EmailSendError ? error.detail : String(error),
+      // Deferred rather than awaited, for the same reason. A live Resend call
+      // for known addresses and an immediate return for unknown ones is a
+      // timing oracle for the property the header parity just closed. It
+      // improves p99 as a side effect.
+      deferSend(
+        c,
+        email
+          .send(magicLinkEmail(address, url, Math.round(config.magicLinkTtlSeconds / 60)))
+          .catch((error: unknown) => {
+            // Only reachable for an account that exists, so surfacing it would
+            // itself leak. Logged and swallowed - with the requestId, so it
+            // lines up with the request line app.ts writes for the same
+            // invocation. providerStatus, not status: app.ts already uses
+            // `status` for our own HTTP status, and two meanings for one key
+            // makes filtering useless.
+            console.error(
+              JSON.stringify({
+                requestId: c.get("requestId"),
+                event: "magic-link-send-failed",
+                providerStatus: error instanceof EmailSendError ? error.status : null,
+                detail: error instanceof EmailSendError ? error.detail : String(error),
+              }),
+            );
           }),
-        );
-      }
-      c.header("Set-Cookie", serializeLinkNonceCookie(link.nonce, LINK_NONCE_TTL_SECONDS));
+      );
 
       // Console mode only, and note what it costs: a devLink present for a
       // known address and absent for an unknown one IS an account-existence
-      // oracle. Acceptable while the operator is the only user; it must never
-      // appear once real mail is being sent.
+      // oracle. readConfig refuses this mode on a non-localhost origin, so it
+      // can only ever appear in local development.
       if (config.emailMode === "console") {
         response.devLink = url;
       }
     }
+
+    c.header("Set-Cookie", serializeLinkNonceCookie(nonce, LINK_NONCE_TTL_SECONDS));
 
     return c.json(response satisfies RequestLinkResponse, 202);
   });
@@ -163,7 +179,7 @@ export function registerAuthRoutes(app: App): void {
     const contentType = c.req.header("Content-Type") ?? "";
     const token = contentType.includes("application/json")
       ? readString(await readJsonBody(c.req.raw, MAX_AUTH_BODY_BYTES), "token")
-      : String((await c.req.parseBody()).token ?? "");
+      : await readFormToken(c.req.raw);
 
     if (!isWellFormedToken(token)) {
       throw invalidBody("That sign-in link is not valid.", "not-authenticated");
@@ -186,13 +202,11 @@ export function registerAuthRoutes(app: App): void {
       });
     }
 
-    const session = await issueSession(
-      db,
-      result.userId,
-      now,
-      config.sessionTtlSeconds,
-      c.req.header("User-Agent") ?? null,
-    );
+    // Rotate at sign-in, not per request: per-request rotation races two
+    // concurrent requests into dropping a live session, and the gain over
+    // sliding expiry is small. issueMagicLink already does the same for links.
+    await revokeAllSessions(db, result.userId);
+    const session = await issueSession(db, result.userId, now, config.sessionTtlSeconds);
     await db.prepare("UPDATE users SET last_seen_at = ?1 WHERE id = ?2").bind(now, result.userId).run();
 
     c.header("Set-Cookie", serializeSessionCookie(session.token, config.sessionTtlSeconds), { append: true });
@@ -212,7 +226,10 @@ export function registerAuthRoutes(app: App): void {
 
     const token = readCookie(c.req.raw, SESSION_COOKIE);
     if (token !== null) {
-      const allDevices = readOptionalString(await safeJson(c.req.raw), "allDevices") === "true";
+      // The client sends a JSON boolean. Reading it as the string "true" meant
+      // "sign out everywhere" silently did nothing -- revokeAllSessions was
+      // unreachable code.
+      const allDevices = readBoolean(await safeJson(c.req.raw), "allDevices");
       if (allDevices) {
         const session = await db
           .prepare("SELECT user_id FROM sessions WHERE session_hash = ?1")
@@ -230,10 +247,53 @@ export function registerAuthRoutes(app: App): void {
   });
 }
 
+/**
+ * Hono only exposes an ExecutionContext when the runtime gave it one, and
+ * reading the property throws when it did not. Production always has one; a
+ * direct `app.request(...)` in a test does not, and there the promise simply
+ * runs unobserved, which is what the test wants anyway.
+ */
+function deferSend(c: { executionCtx: { waitUntil(promise: Promise<unknown>): void } }, work: Promise<void>): void {
+  try {
+    c.executionCtx.waitUntil(work);
+  } catch {
+    void work;
+  }
+}
+
+/**
+ * Both of these read a body before anything is authenticated, so both are
+ * capped. Content-Length first, actual length after, the same shape
+ * v1/upload.ts already uses -- a non-browser client can lie about the header.
+ */
+async function readBoundedText(request: Request, maxBytes: number): Promise<string> {
+  const declared = Number(request.headers.get("Content-Length") ?? "0");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw payloadTooLarge("That request body is too large.", "api-invalid");
+  }
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > maxBytes) {
+    throw payloadTooLarge("That request body is too large.", "api-invalid");
+  }
+  return text;
+}
+
+async function readFormToken(request: Request): Promise<string> {
+  const body = await readBoundedText(request.clone(), MAX_AUTH_BODY_BYTES);
+  return new URLSearchParams(body).get("token") ?? "";
+}
+
 async function safeJson(request: Request): Promise<unknown> {
   try {
-    return await request.clone().json();
+    return JSON.parse(await readBoundedText(request.clone(), MAX_AUTH_BODY_BYTES)) as unknown;
   } catch {
     return {};
   }
+}
+
+function readBoolean(payload: unknown, field: string): boolean {
+  if (typeof payload !== "object" || payload === null) {
+    return false;
+  }
+  return (payload as Record<string, unknown>)[field] === true;
 }

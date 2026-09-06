@@ -28,9 +28,22 @@ function argument(name, fallback) {
 }
 
 function generateCode() {
-  const bytes = randomBytes(12);
-  const characters = [...bytes].map((byte) => ALPHABET[byte % ALPHABET.length]);
+  const characters = [...Array(12)].map(() => ALPHABET[unbiasedIndex(ALPHABET.length)]);
   return [characters.slice(0, 4).join(""), characters.slice(4, 8).join(""), characters.slice(8, 12).join("")].join("-");
+}
+
+/**
+ * Rejection sampling, matching worker/src/auth/invites.ts. 256 is not a
+ * multiple of 31, so `byte % 31` makes the first ten letters of the alphabet
+ * meaningfully likelier than the rest.
+ */
+function unbiasedIndex(range) {
+  const ceiling = 256 - (256 % range);
+  let byte;
+  do {
+    byte = randomBytes(1)[0];
+  } while (byte >= ceiling);
+  return byte % range;
 }
 
 const remote = process.argv.includes("--remote");
@@ -48,9 +61,11 @@ const normalised = code.replaceAll("-", "").toUpperCase();
 const hash = createHash("sha256").update(normalised).digest("hex");
 const now = Math.floor(Date.now() / 1000);
 
+// Parameterised rather than interpolated: hand-doubling quotes on a
+// caller-supplied label is one review away from being wrong.
 const sql =
   "INSERT INTO invite_codes (code_hash, label, max_uses, uses, expires_at, created_at, disabled_at) " +
-  `VALUES ('${hash}', '${label.replaceAll("'", "''")}', ${maxUses}, 0, NULL, ${now}, NULL);`;
+  "VALUES (?1, ?2, ?3, 0, NULL, ?4, NULL);";
 
 // Written to a file rather than passed with --command: the shell needed to
 // resolve npx on Windows would otherwise word-split the SQL.
@@ -61,7 +76,23 @@ writeFileSync(sqlPath, sql);
 try {
   execFileSync(
     "npx",
-    ["wrangler", "d1", "execute", DATABASE, remote ? "--remote" : "--local", "--file", JSON.stringify(sqlPath)],
+    [
+      "wrangler",
+      "d1",
+      "execute",
+      DATABASE,
+      remote ? "--remote" : "--local",
+      "--file",
+      JSON.stringify(sqlPath),
+      "--param",
+      JSON.stringify(hash),
+      "--param",
+      JSON.stringify(label),
+      "--param",
+      String(maxUses),
+      "--param",
+      String(now),
+    ],
     { stdio: "inherit", shell: true },
   );
 } finally {

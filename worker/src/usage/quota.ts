@@ -16,6 +16,8 @@ export interface UsageRow {
   readonly audio_seconds_reserved: number;
   readonly transcribe_calls: number;
   readonly chat_calls: number;
+  readonly micros_spent: number;
+  readonly micros_reserved: number;
 }
 
 const RESERVATION_TTL_SECONDS = 600;
@@ -47,6 +49,9 @@ export async function reserveTranscription(
   if (audioSeconds > audioSecondsLimit) {
     throw quotaExceeded();
   }
+  if (micros > config.userDailySpendMicros) {
+    throw quotaExceeded();
+  }
   if (micros > config.globalDailySpendMicros) {
     throw spendCapReached();
   }
@@ -62,12 +67,23 @@ export async function reserveTranscription(
        ON CONFLICT(user_id, day) DO UPDATE SET
          audio_seconds_reserved = usage_daily.audio_seconds_reserved + ?3,
          transcribe_calls       = usage_daily.transcribe_calls + 1,
+         micros_reserved        = usage_daily.micros_reserved + ?7,
          updated_at             = ?4
        WHERE usage_daily.audio_seconds + usage_daily.audio_seconds_reserved + ?3 <= ?5
          AND usage_daily.transcribe_calls + 1 <= ?6
+         AND usage_daily.micros_spent + usage_daily.micros_reserved + ?7 <= ?8
        RETURNING transcribe_calls`,
     )
-    .bind(userId, day, audioSeconds, nowSeconds, audioSecondsLimit, config.userDailyTranscribeCalls)
+    .bind(
+      userId,
+      day,
+      audioSeconds,
+      nowSeconds,
+      audioSecondsLimit,
+      config.userDailyTranscribeCalls,
+      micros,
+      config.userDailySpendMicros,
+    )
     .first<{ transcribe_calls: number }>();
 
   if (reserved === null) {
@@ -89,6 +105,9 @@ export async function reserveChat(
   const day = utcDay(nowSeconds);
   const micros = reserveMicrosForChat(config.priceChatInMicrosPerMTok, config.priceChatOutMicrosPerMTok);
 
+  if (micros > config.userDailySpendMicros) {
+    throw quotaExceeded();
+  }
   if (micros > config.globalDailySpendMicros) {
     throw spendCapReached();
   }
@@ -102,12 +121,14 @@ export async function reserveChat(
                                 transcribe_calls, chat_calls, chat_tokens_in, chat_tokens_out, updated_at)
        VALUES (?1, ?2, 0, 0, 0, 1, 0, 0, ?3)
        ON CONFLICT(user_id, day) DO UPDATE SET
-         chat_calls = usage_daily.chat_calls + 1,
-         updated_at = ?3
+         chat_calls      = usage_daily.chat_calls + 1,
+         micros_reserved = usage_daily.micros_reserved + ?5,
+         updated_at      = ?3
        WHERE usage_daily.chat_calls + 1 <= ?4
+         AND usage_daily.micros_spent + usage_daily.micros_reserved + ?5 <= ?6
        RETURNING chat_calls`,
     )
-    .bind(userId, day, nowSeconds, config.userDailyChatCalls)
+    .bind(userId, day, nowSeconds, config.userDailyChatCalls, micros, config.userDailySpendMicros)
     .first<{ chat_calls: number }>();
 
   if (reserved === null) {
@@ -143,6 +164,8 @@ export async function settle(
                 audio_seconds_reserved = MAX(0, audio_seconds_reserved - ?2),
                 chat_tokens_in         = chat_tokens_in + ?3,
                 chat_tokens_out        = chat_tokens_out + ?4,
+                micros_spent           = micros_spent + ?8,
+                micros_reserved        = MAX(0, micros_reserved - ?9),
                 updated_at             = ?5
           WHERE user_id = ?6 AND day = ?7`,
       )
@@ -154,6 +177,8 @@ export async function settle(
         nowSeconds,
         reservation.userId,
         reservation.day,
+        actual.micros,
+        reservation.micros,
       ),
     db
       .prepare(
@@ -240,13 +265,23 @@ function recordReservation(db: D1Database, reservation: Reservation, nowSeconds:
 export async function readUsage(db: D1Database, userId: string, day: string): Promise<UsageRow> {
   const row = await db
     .prepare(
-      `SELECT audio_seconds, audio_seconds_reserved, transcribe_calls, chat_calls
+      `SELECT audio_seconds, audio_seconds_reserved, transcribe_calls, chat_calls,
+              micros_spent, micros_reserved
          FROM usage_daily WHERE user_id = ?1 AND day = ?2`,
     )
     .bind(userId, day)
     .first<UsageRow>();
 
-  return row ?? { audio_seconds: 0, audio_seconds_reserved: 0, transcribe_calls: 0, chat_calls: 0 };
+  return (
+    row ?? {
+      audio_seconds: 0,
+      audio_seconds_reserved: 0,
+      transcribe_calls: 0,
+      chat_calls: 0,
+      micros_spent: 0,
+      micros_reserved: 0,
+    }
+  );
 }
 
 export async function isServiceAvailable(db: D1Database, day: string, capMicros: number): Promise<boolean> {
@@ -254,6 +289,11 @@ export async function isServiceAvailable(db: D1Database, day: string, capMicros:
     .prepare("SELECT micros_spent, micros_reserved FROM spend_daily WHERE day = ?1")
     .bind(day)
     .first<{ micros_spent: number; micros_reserved: number }>();
+  // Checked before the row lookup: 0 is the kill switch, and it has to stop
+  // the very first request of a day as well as the thousandth.
+  if (capMicros <= 0) {
+    return false;
+  }
   if (row === null) {
     return true;
   }

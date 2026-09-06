@@ -105,6 +105,7 @@ export function fakeSession(state: AuthState = SIGNED_IN): AuthSession {
     requireSignedIn: () => undefined,
     requestMagicLink: async () => undefined,
     signOut: async () => undefined,
+    deleteAccount: async () => undefined,
     markSignedOut: () => undefined,
     updateQuota: () => undefined,
     subscribe: () => () => undefined,

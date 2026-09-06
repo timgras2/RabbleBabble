@@ -17,6 +17,12 @@ function requestLink(app: ReturnType<typeof buildTestApp>, body: Record<string, 
   });
 }
 
+/** Name and attributes, without the value: two nonces are never equal. */
+function cookieShape(header: string): string {
+  const [pair, ...attributes] = header.split(";");
+  return [pair?.split("=")[0]?.trim(), ...attributes.map((part) => part.trim())].join("; ");
+}
+
 describe("POST /auth/request-link", () => {
   it("answers identically for a known and an unknown address", async () => {
     // Asserted in the shipping configuration. Console mode adds a devLink for
@@ -37,6 +43,14 @@ describe("POST /auth/request-link", () => {
     expect(Object.keys(knownBody as object)).toEqual(Object.keys(unknownBody as object));
     expect((unknownBody as { status: string }).status).toBe("sent");
     expect(knownBody).not.toHaveProperty("devLink");
+
+    // The headers too. Set-Cookie used to be set only inside the branch that
+    // found a user, so this one header was an account-existence oracle in a
+    // route where every other byte had been made identical on purpose -- and
+    // the old version of this test only ever compared body keys.
+    expect(known.headers.getSetCookie().map(cookieShape))
+      .toEqual(unknown.headers.getSetCookie().map(cookieShape));
+    expect(known.headers.getSetCookie()).toHaveLength(1);
   });
 
   it("hands the operator a usable link only in console mode", async () => {

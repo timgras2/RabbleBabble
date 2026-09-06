@@ -17,6 +17,7 @@ function fakeSession(overrides: Partial<AuthSession> = {}, state: AuthState = SI
     requireSignedIn: vi.fn(() => undefined),
     requestMagicLink: vi.fn(async () => undefined),
     signOut: vi.fn(async () => undefined),
+    deleteAccount: vi.fn(async () => undefined),
     markSignedOut: vi.fn(),
     updateQuota: vi.fn(),
     subscribe: () => () => undefined,

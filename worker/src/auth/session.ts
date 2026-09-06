@@ -32,23 +32,16 @@ export async function issueSession(
   userId: string,
   nowSeconds: number,
   ttlSeconds: number,
-  userAgent: string | null,
 ): Promise<IssuedSession> {
   const token = randomToken();
   const expiresAt = nowSeconds + ttlSeconds;
 
   await db
     .prepare(
-      `INSERT INTO sessions (session_hash, user_id, created_at, expires_at, last_seen_at, user_agent_hash)
-       VALUES (?1, ?2, ?3, ?4, ?3, ?5)`,
+      `INSERT INTO sessions (session_hash, user_id, created_at, expires_at, last_seen_at)
+       VALUES (?1, ?2, ?3, ?4, ?3)`,
     )
-    .bind(
-      await sha256Hex(token),
-      userId,
-      nowSeconds,
-      expiresAt,
-      userAgent === null ? null : await sha256Hex(userAgent),
-    )
+    .bind(await sha256Hex(token), userId, nowSeconds, expiresAt)
     .run();
 
   return { token, expiresAt };
@@ -88,15 +81,30 @@ export async function readSession(
 }
 
 /**
- * Written at most once a day. Authentication happens on every request, and a
- * write per request would turn a read-only check into D1 write load for a
- * timestamp nobody reads that precisely.
+ * Written at most once a day, and it is what makes the 90-day expiry sliding.
+ *
+ * Authentication happens on every request, so a write per request would turn a
+ * read-only check into D1 write load for a timestamp nobody reads that
+ * precisely. Riding the expiry extension on the same once-a-day write costs
+ * nothing extra: a daily user is never signed out, and an abandoned phone
+ * stops being a key 90 days after it was last used rather than 365 days after
+ * it was first signed in.
  */
-export function touchSession(db: D1Database, token: string, nowSeconds: number): Promise<unknown> {
+export function touchSession(
+  db: D1Database,
+  token: string,
+  nowSeconds: number,
+  ttlSeconds: number,
+): Promise<unknown> {
   return sha256Hex(token).then((hash) =>
     db
-      .prepare("UPDATE sessions SET last_seen_at = ?1 WHERE session_hash = ?2 AND last_seen_at < ?3")
-      .bind(nowSeconds, hash, nowSeconds - 86_400)
+      .prepare(
+        `UPDATE sessions
+            SET last_seen_at = ?1,
+                expires_at   = ?1 + ?4
+          WHERE session_hash = ?2 AND last_seen_at < ?3`,
+      )
+      .bind(nowSeconds, hash, nowSeconds - 86_400, ttlSeconds)
       .run(),
   );
 }

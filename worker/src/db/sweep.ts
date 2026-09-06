@@ -1,6 +1,13 @@
 const USAGE_RETENTION_DAYS = 90;
 
 /**
+ * A post-outage backlog could otherwise issue a single db.batch of 3 x N
+ * statements, exceed D1's batch limits, and then fail every hour forever
+ * without ever draining. Bounded, so each run makes progress.
+ */
+const MAX_RECLAIMED_PER_RUN = 200;
+
+/**
  * Hourly housekeeping.
  *
  * Two jobs. The first is retention: expired tokens, dead sessions and stale
@@ -14,6 +21,16 @@ const USAGE_RETENTION_DAYS = 90;
  * reservations ledger is what makes those recoverable.
  */
 export async function runSweep(db: D1Database, nowSeconds: number): Promise<void> {
+  // waitUntil swallows a rejection, so an unguarded throw here is a cron that
+  // fails every hour with nothing anywhere saying so.
+  try {
+    await sweep(db, nowSeconds);
+  } catch (error) {
+    console.error(JSON.stringify({ event: "sweep-failed", detail: String(error) }));
+  }
+}
+
+async function sweep(db: D1Database, nowSeconds: number): Promise<void> {
   const cutoff = new Date((nowSeconds - USAGE_RETENTION_DAYS * 86_400) * 1000).toISOString().slice(0, 10);
 
   await db.batch([
@@ -26,11 +43,12 @@ export async function runSweep(db: D1Database, nowSeconds: number): Promise<void
     db.prepare("DELETE FROM spend_daily WHERE day < ?1").bind(cutoff),
   ]);
 
-  // A live request holds a reservation for at most 120s (the transcription
-  // timeout), and these expire after 600s, so nothing in flight is reclaimed.
+  // A live request holds a reservation for at most one transcription budget
+  // (see MAX_ATTEMPTS and TRANSCRIPTION_TIMEOUT_MS in groq/gateway.ts, ~91s
+  // today), and these expire after 600s, so nothing in flight is reclaimed.
   const { results } = await db
-    .prepare("SELECT id, user_id, day, audio_seconds, micros FROM reservations WHERE expires_at < ?1")
-    .bind(nowSeconds)
+    .prepare("SELECT id, user_id, day, audio_seconds, micros FROM reservations WHERE expires_at < ?1 LIMIT ?2")
+    .bind(nowSeconds, MAX_RECLAIMED_PER_RUN)
     .all<{ id: string; user_id: string; day: string; audio_seconds: number; micros: number }>();
 
   if (results.length === 0) {

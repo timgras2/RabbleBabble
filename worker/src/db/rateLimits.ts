@@ -19,6 +19,10 @@ export interface RateLimitVerdict {
   readonly retryAfterSeconds: number;
 }
 
+export function minuteWindow(nowSeconds: number): string {
+  return new Date(nowSeconds * 1000).toISOString().slice(0, 16);
+}
+
 export function hourWindow(nowSeconds: number): string {
   return new Date(nowSeconds * 1000).toISOString().slice(0, 13);
 }

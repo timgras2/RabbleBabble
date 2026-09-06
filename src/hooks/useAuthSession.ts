@@ -21,7 +21,8 @@ export function useAuthSession(services: AppServices) {
     ...state,
     refresh: () => session.refresh(),
     requestMagicLink: session.requestMagicLink.bind(session),
-    signOut: () => session.signOut(),
+    signOut: (options?: { readonly allDevices?: boolean }) => session.signOut(options),
+    deleteAccount: () => session.deleteAccount(),
   };
 }
 

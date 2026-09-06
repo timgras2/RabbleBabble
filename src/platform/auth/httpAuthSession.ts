@@ -107,20 +107,39 @@ export class HttpAuthSession implements AuthSession {
     );
   }
 
-  async signOut(): Promise<void> {
+  async signOut(options: { readonly allDevices?: boolean } = {}): Promise<void> {
     try {
       await this.http.send(
         `${this.baseUrl}/auth/logout`,
         {
           method: "POST",
           credentials: "include",
-          headers: { [CLIENT_HEADER]: CLIENT_HEADER_VALUE },
+          headers: { "Content-Type": "application/json", [CLIENT_HEADER]: CLIENT_HEADER_VALUE },
+          // The client used to send no body at all, and the server read the
+          // flag as the string "true", so "sign out everywhere" was two
+          // independent no-ops stacked on each other.
+          body: JSON.stringify({ allDevices: options.allDevices === true }),
         },
         { timeoutMs: this.timeoutMs, maxAttempts: 1 },
       );
     } catch {
       // Signing out locally must happen whether or not the server agreed.
     }
+    this.markSignedOut();
+  }
+
+  async deleteAccount(): Promise<void> {
+    await this.http.send(
+      `${this.baseUrl}/v1/me`,
+      {
+        method: "DELETE",
+        credentials: "include",
+        headers: { [CLIENT_HEADER]: CLIENT_HEADER_VALUE },
+      },
+      // One attempt: a retried delete on a row that is already gone is
+      // harmless, but a 404 surfacing as a failure is not worth the noise.
+      { timeoutMs: this.timeoutMs, maxAttempts: 1 },
+    );
     this.markSignedOut();
   }
 

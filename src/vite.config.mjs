@@ -56,6 +56,29 @@ function contentSecurityPolicy({ serviceMode, apiOrigin }) {
 }
 
 /**
+ * The headers a Workers static-asset response gets, generated from the same
+ * contentSecurityPolicy() the meta tag uses so the two cannot drift.
+ *
+ * run_worker_first only covers /v1/* and /auth/*, so asset responses never
+ * invoke the Worker and applySecurityHeaders never ran on the HTML, JS, CSS,
+ * manifest or icons at all. A <meta> tag cannot express frame-ancestors,
+ * report-to or sandbox, and it is installed after the bundle links in <head>,
+ * which is after the bundle has already been fetched.
+ */
+function headersFile(csp) {
+  return [
+    "/*",
+    `  Content-Security-Policy: ${csp}; frame-ancestors 'none'`,
+    "  Strict-Transport-Security: max-age=31536000; includeSubDomains",
+    "  X-Content-Type-Options: nosniff",
+    "  Permissions-Policy: microphone=(self), camera=(), geolocation=()",
+    "  Cross-Origin-Opener-Policy: same-origin",
+    "  Referrer-Policy: no-referrer",
+    "",
+  ].join(String.fromCharCode(10));
+}
+
+/**
  * Audio, transcripts and auth responses must never touch Cache Storage.
  * Workbox routes default to GET, so each pattern needs an explicit POST twin.
  */
@@ -117,10 +140,22 @@ export default defineConfig(({ command, mode }) => {
                   "http-equiv": "Content-Security-Policy",
                   content: csp,
                 },
-                injectTo: "head",
+                // Kept even though the real headers below are stronger:
+                // GitHub Pages cannot serve custom headers, so this stays the
+                // only policy the bring-your-own-key build ever gets. Prepended
+                // so it is installed BEFORE the script and stylesheet links.
+                injectTo: "head-prepend",
               },
             ],
           };
+        },
+        generateBundle() {
+          // Only the service build is served by Workers static assets; GitHub
+          // Pages ignores a _headers file, so shipping one there is noise.
+          if (!serviceMode) {
+            return;
+          }
+          this.emitFile({ type: "asset", fileName: "_headers", source: headersFile(csp) });
         },
       },
       VitePWA({

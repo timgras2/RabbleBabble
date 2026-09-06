@@ -20,6 +20,7 @@ export interface Config {
   readonly userDailyAudioSeconds: number;
   readonly userDailyTranscribeCalls: number;
   readonly userDailyChatCalls: number;
+  readonly userDailySpendMicros: number;
   readonly globalDailySpendMicros: number;
   readonly transcribeReserveSeconds: number;
   readonly priceTranscribeMicrosPerHour: number;
@@ -46,6 +47,20 @@ function requirePositiveInt(env: Env, name: keyof Env): number {
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new ConfigError(`${String(name)} must be a positive integer, got "${raw}"`);
+  }
+  return value;
+}
+
+/**
+ * Zero is meaningful here and only here: GLOBAL_DAILY_SPEND_MICROS=0 is the
+ * emergency kill switch. requirePositiveInt rejected it, so the only way to
+ * stop the service was to set the cap to 1 and hope.
+ */
+function requireNonNegativeInt(env: Env, name: keyof Env): number {
+  const raw = requireString(env, name);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ConfigError(`${String(name)} must be a non-negative integer, got "${raw}"`);
   }
   return value;
 }
@@ -117,13 +132,31 @@ function requireResendApiKey(env: Env): string {
   return value;
 }
 
+/**
+ * Console mode returns the complete working magic link in the HTTP response
+ * body to anyone who POSTs a valid address, and logs it with the recipient.
+ * That is total account takeover for every user of the deployment.
+ *
+ * Nothing enforced it before this, and `npm run dev:worker` forces the mode
+ * with a --var, so the muscle memory to type it exists. It is now impossible
+ * anywhere but a loopback origin.
+ */
+function isLoopbackOrigin(url: URL): boolean {
+  return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+}
+
 export function readConfig(env: Env): Config {
   const appOrigin = stripTrailingSlash(requireString(env, "APP_ORIGIN"));
   // Parsed eagerly so a malformed origin fails at boot, not at the first
   // same-site check where it would silently reject every request.
-  new URL(appOrigin);
+  const originUrl = new URL(appOrigin);
 
   const emailMode = requireOneOf(env, "EMAIL_MODE", ["resend", "console"] as const);
+  if (emailMode === "console" && !isLoopbackOrigin(originUrl)) {
+    throw new ConfigError(
+      `EMAIL_MODE=console hands out working sign-in links in the response body, so it is refused for APP_ORIGIN "${appOrigin}". Use EMAIL_MODE=resend.`,
+    );
+  }
   const sending = emailMode === "resend";
 
   return {
@@ -139,7 +172,8 @@ export function readConfig(env: Env): Config {
     userDailyAudioSeconds: requirePositiveInt(env, "USER_DAILY_AUDIO_SECONDS"),
     userDailyTranscribeCalls: requirePositiveInt(env, "USER_DAILY_TRANSCRIBE_CALLS"),
     userDailyChatCalls: requirePositiveInt(env, "USER_DAILY_CHAT_CALLS"),
-    globalDailySpendMicros: requirePositiveInt(env, "GLOBAL_DAILY_SPEND_MICROS"),
+    userDailySpendMicros: requirePositiveInt(env, "USER_DAILY_SPEND_MICROS"),
+    globalDailySpendMicros: requireNonNegativeInt(env, "GLOBAL_DAILY_SPEND_MICROS"),
     transcribeReserveSeconds: requirePositiveInt(env, "TRANSCRIBE_RESERVE_SECONDS"),
     priceTranscribeMicrosPerHour: requirePositiveInt(env, "PRICE_TRANSCRIBE_MICROS_PER_HOUR"),
     priceChatInMicrosPerMTok: requirePositiveInt(env, "PRICE_CHAT_IN_MICROS_PER_MTOK"),

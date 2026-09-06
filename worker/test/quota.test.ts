@@ -159,3 +159,26 @@ describe("GET /v1/me", () => {
     expect(body.quota.resetsAtEpochSeconds).toBeGreaterThan(testApp.clock.nowSeconds());
   });
 });
+
+describe("burst limits on /v1/*", () => {
+  /**
+   * Rate limiting existed only for /auth/*. Daily quotas capped the day, and
+   * nothing capped the minute -- so one valid session could make the whole
+   * day's global budget of calls inside sixty seconds.
+   */
+  it("refuses a burst from one session inside a single minute", async () => {
+    const testApp = buildTestApp();
+    const cookie = await signIn(testApp, "burst@example.com", { inviteCode: await createInvite() });
+
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const response = await testApp.app.request(`${APP_ORIGIN}/v1/me`, {
+        headers: appHeaders({ Cookie: cookie }),
+      });
+      statuses.push(response.status);
+    }
+
+    expect(statuses.filter((status) => status === 429).length).toBeGreaterThan(0);
+    expect(statuses[0]).toBe(200);
+  });
+});

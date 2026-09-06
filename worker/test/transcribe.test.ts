@@ -191,4 +191,31 @@ describe("POST /v1/transcribe", () => {
       .first<{ status: string }>();
     expect(user?.status).toBe("suspended");
   });
+
+  /**
+   * The estimate is byteLength / 4000, so a normal two-minute recording is
+   * "over six minutes" the moment it passes ~1.44 MB. If Groq ever stopped
+   * returning both `duration` and `segments`, the old code would have
+   * suspended every account on the service -- and there is no self-serve way
+   * back from a suspension.
+   */
+  it("bills but does not suspend when Groq reports no duration at all", async () => {
+    const testApp = buildTestApp();
+    const cookie = await signedIn(testApp, "noduration@example.com");
+    testApp.groqFetch.mockImplementation(
+      (async () => Response.json({ text: "some words", language: "en" })) as unknown as typeof fetch,
+    );
+
+    // 4 MB estimates to 1000s, well past the 360s implausibility threshold.
+    await postAudio(testApp, cookie, { body: new ArrayBuffer(4_000_000) });
+
+    const user = await env.DB.prepare("SELECT status FROM users WHERE email = ?1")
+      .bind("noduration@example.com")
+      .first<{ status: string }>();
+    expect(user?.status).toBe("active");
+
+    const usage = await usageFor("noduration@example.com");
+    // Still charged, and generously: the fallback errs towards over-billing.
+    expect(usage?.audio_seconds).toBe(1_000);
+  });
 });

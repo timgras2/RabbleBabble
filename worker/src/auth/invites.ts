@@ -9,10 +9,21 @@ import { sha256Hex } from "./crypto";
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 export function generateInviteCode(): string {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  const characters = [...bytes].map((byte) => ALPHABET[byte % ALPHABET.length] ?? "X");
+  const characters = [...Array<undefined>(12)].map(() => ALPHABET[unbiasedIndex(ALPHABET.length)] ?? "X");
   return [characters.slice(0, 4).join(""), characters.slice(4, 8).join(""), characters.slice(8, 12).join("")].join("-");
+}
+
+/**
+ * Rejection sampling. 256 is not a multiple of 31, so `byte % 31` makes the
+ * first ten letters of the alphabet meaningfully likelier than the rest.
+ */
+function unbiasedIndex(range: number): number {
+  const ceiling = 256 - (256 % range);
+  const byte = new Uint8Array(1);
+  do {
+    crypto.getRandomValues(byte);
+  } while (byte[0]! >= ceiling);
+  return byte[0]! % range;
 }
 
 export function normaliseInviteCode(value: string): string {

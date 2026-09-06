@@ -8,10 +8,11 @@ import {
 import { buildCleanupMessages, buildRewriteMessages } from "../../../src/shared/prompts";
 import { LANGUAGE_HEADER, type MeResponse, type TextResponse, type TranscribeResponse } from "../../../src/shared/wire";
 import type { App } from "../app";
-import { accountSuspended, emptyResult, invalidBody, notAuthenticated, payloadTooLarge, unsupportedMediaType } from "../errors";
+import { accountSuspended, emptyResult, invalidBody, notAuthenticated, payloadTooLarge, rateLimited, unsupportedMediaType } from "../errors";
+import { consumeRateLimits, hourWindow, minuteWindow } from "../db/rateLimits";
 import { requireClientHeader, requireSameSite } from "../http/guards";
 import { readJsonBody, readString } from "../http/json";
-import { readCookie, readSession, touchSession, SESSION_COOKIE, type SessionUser } from "../auth/session";
+import { clearedSessionCookie, readCookie, readSession, touchSession, SESSION_COOKIE, type SessionUser } from "../auth/session";
 import { suspendUser } from "../db/users";
 import { nextUtcMidnight, utcDay } from "../usage/clock";
 import { chargeableSeconds, chatMicros, transcriptionMicros } from "../usage/pricing";
@@ -60,6 +61,24 @@ export function registerV1Routes(app: App): void {
   });
 
   /**
+   * Erasure, in one statement.
+   *
+   * ON DELETE CASCADE is already declared on auth_tokens, sessions and
+   * usage_daily, so removing the user row removes everything about them. The
+   * IP pepper protects what is in D1; Cloudflare's own platform logs carry the
+   * unpeppered client IP and are outside this deletion.
+   */
+  app.delete("/v1/me", async (c) => {
+    const user = await authenticate(c);
+    const { db } = c.get("deps");
+
+    await db.prepare("DELETE FROM users WHERE id = ?1").bind(user.id).run();
+
+    c.header("Set-Cookie", clearedSessionCookie());
+    return c.body(null, 204);
+  });
+
+  /**
    * Takes raw audio bytes as the body, not multipart.
    *
    * The Worker never parses multipart (no CPU, no parser attack surface),
@@ -92,7 +111,11 @@ export function registerV1Routes(app: App): void {
         ...(LANGUAGE_PATTERN.test(language) ? { language } : {}),
       });
 
-      const observed = result.durationSeconds ?? estimateSecondsFromBytes(audio.byteLength);
+      // Kept apart on purpose: `measured` is what Groq actually reported, and
+      // it is the ONLY thing allowed to suspend an account. The estimate below
+      // bills, and nothing more.
+      const measured = result.durationSeconds;
+      const observed = measured ?? estimateSecondsFromBytes(audio.byteLength);
       const billed = chargeableSeconds(observed);
       await settle(
         db,
@@ -105,9 +128,22 @@ export function registerV1Routes(app: App): void {
       // A 25 MB file at a very low bitrate can be hours of audio, which Groq
       // will happily transcribe before we ever see the duration. The byte cap
       // is only a lower bound, so the account is stopped after the fact.
-      if (observed > (MAX_AUDIO_MS / 1000) * IMPLAUSIBLE_DURATION_FACTOR) {
-        console.error(`[transcribe] implausible duration ${observed}s for user ${user.id}; suspending`);
+      //
+      // Only on a measured duration. The estimate is byteLength / 4000, so a
+      // normal two-minute recording clears 360s at about 1.44 MB: if Groq ever
+      // stopped returning `duration` and `segments`, this branch would suspend
+      // every account on the service, and there is no self-serve way back.
+      if (measured !== null && measured > (MAX_AUDIO_MS / 1000) * IMPLAUSIBLE_DURATION_FACTOR) {
+        console.error(`[transcribe] implausible duration ${measured}s for user ${user.id}; suspending`);
         await suspendUser(db, user.id);
+      } else if (measured === null) {
+        console.warn(
+          JSON.stringify({
+            requestId: c.get("requestId"),
+            event: "transcribe-duration-missing",
+            estimatedSeconds: observed,
+          }),
+        );
       }
 
       if (result.text.trim() === "") {
@@ -232,8 +268,24 @@ async function authenticate(c: RouteContext): Promise<SessionUser> {
     throw accountSuspended();
   }
 
+  // Daily quotas cap the day; nothing capped the minute. One valid session
+  // could make the whole day's global budget of calls inside sixty seconds.
+  // Same mechanism as /auth/*: the window is baked into the bucket key, so
+  // there is no rollover bug and no second thing to reason about.
+  const verdict = await consumeRateLimits(
+    db,
+    [
+      { bucket: `user:${user.id}:${minuteWindow(now)}`, limit: 12, windowSeconds: 60 },
+      { bucket: `user:${user.id}:${hourWindow(now)}`, limit: 120, windowSeconds: 3_600 },
+    ],
+    now,
+  );
+  if (!verdict.allowed) {
+    throw rateLimited("auth-rate-limited", "Too many requests. Slow down a moment.", verdict.retryAfterSeconds);
+  }
+
   c.set("session", user);
-  await touchSession(db, token, now).catch(() => undefined);
+  await touchSession(db, token, now, config.sessionTtlSeconds).catch(() => undefined);
   return user;
 }
 
