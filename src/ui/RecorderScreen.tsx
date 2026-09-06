@@ -12,6 +12,8 @@ import { LevelMeter } from "./components/LevelMeter";
 import { RecordButton } from "./components/RecordButton";
 import { haptics } from "./haptics";
 import { useScreenFocus } from "../hooks/useScreenFocus";
+import { readMicPermission } from "../platform/audio/micPermission";
+import type { MicPermission } from "../platform/audio/micPermission";
 
 interface RecorderScreenProps {
   readonly services: AppServices;
@@ -150,6 +152,27 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusOnMoun
     const timer = setTimeout(() => setCopyStatus(null), 2_000);
     return () => clearTimeout(timer);
   }, [copyStatus, setCopyStatus]);
+
+  // NotAllowedError is what WebKit throws for a real denial AND for a request
+  // that lost its user activation, so the error alone cannot tell the user
+  // whether to change a setting or simply tap again. Where the platform will
+  // say, it says; where it will not, the message stays as it was.
+  const [micPermission, setMicPermission] = useState<MicPermission>("unknown");
+  const micProblem = dictation.error?.code === "mic-denied" || dictation.error?.code === "mic-unavailable";
+  useEffect(() => {
+    if (!micProblem) {
+      return;
+    }
+    let live = true;
+    void readMicPermission().then((state) => {
+      if (live) {
+        setMicPermission(state);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [micProblem]);
 
   const errorMessage = dictation.error ? messageForError(dictation.error) : null;
   const hasResult = Boolean(dictation.result);
@@ -372,7 +395,14 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn, focusOnMoun
         {errorMessage && (
           <div className="notice notice--error">
             <AlertCircle size={19} />
-            <div><strong>{errorMessage.title}</strong><span>{errorMessage.detail}</span></div>
+            <div>
+              <strong>{errorMessage.title}</strong>
+              <span>
+                {micProblem && micPermission === "prompt"
+                  ? "The microphone has not been blocked - the browser just did not get to ask. Tap the dial again."
+                  : errorMessage.detail}
+              </span>
+            </div>
             <ErrorAction
               code={dictation.error?.code}
               canRetry={dictation.canRetry}

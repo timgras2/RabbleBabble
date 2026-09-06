@@ -232,7 +232,55 @@
 - [x] `npm run typecheck`
 - [x] `npm test`
 - [x] `npm run build`
-- [ ] Test missing key, invalid key, offline mode, microphone denial, Groq timeout,
+- [x] Test missing key, invalid key, offline mode, microphone denial, Groq timeout,
   Groq rate limit, cleanup failure, rewrite failure/cancellation, and clipboard denial.
-- [ ] Confirm DevTools Application storage contains settings only; no audio or API
-  responses exist in Cache Storage.
+  Covered by the adapter tests, the React screen tests added in V3, and the
+  `messageForError` exhaustiveness table.
+- [ ] Confirm DevTools Application storage contains settings and -- only while in
+  flight -- buffered audio, with no transcripts and no API responses in Cache
+  Storage. **Changed in V3:** in-flight audio is now deliberately in IndexedDB
+  and deleted on delivery; see `docs/v3-plan.md` Phase 2.
+
+## Phase 8 — V3
+
+Tracked in `docs/v3-plan.md`, which is the authority on the reasoning. Delivered:
+
+- [x] **V3-0 — Shipped defects.** Auto-stop retains the recording and publishes
+  the state; failed uploads hold the audio and offer a retry; the two undeclared
+  CSS properties; the service worker that could reload away a transcript; the
+  elapsed timer that restarted from zero; the error state that outlived its notice.
+- [x] **V3-1 — Worker hardening.** The `Set-Cookie` account-existence oracle;
+  `EMAIL_MODE=console` refused off localhost; auto-suspension only on a measured
+  duration, with `scripts/user.mjs` as the recovery path; bounded unauthenticated
+  bodies; burst limits on `/v1/*`; real security headers on the app shell;
+  90-day sliding sessions with rotation at sign-in; cost controls that express a
+  policy; a retry budget that fits under Cloudflare's edge timeout; sweep
+  robustness; account deletion.
+- [x] **V3-2 — The durability layer.** In-flight audio buffered to IndexedDB and
+  deleted on delivery; interruption handling; silence detection; capture constraints.
+- [x] **V3-3 — Design system and accessibility.** Type, space, radius and motion
+  tokenised; the typeface resolved; the announcement model rebuilt; real headings
+  and focus management; Settings autosaves.
+- [x] **V3-4 — Features.** Personal vocabulary, rewrite preset chips, share and a
+  finished manifest, opt-in on-device history.
+- [x] **V3-5 — Proof and ops.** React screen tests, one Playwright happy path
+  against real build output, gateway retry coverage, the error-code exhaustiveness
+  table, a staging environment, a hardened deploy workflow with a smoke gate,
+  Dependabot and `npm audit`, type-aware ESLint, a bundle budget, and a weekly
+  usage summary.
+- [x] **V3-6 — iOS: make the microphone openable.** `checkReady()` is synchronous
+  so the user activation survives to `getUserMedia` (boundary rule 11);
+  `AudioContext.resume()`; platform-aware permission copy; the latent WebM default.
+
+Still open, and only a device can close them:
+
+- [ ] **V3-V1 — Android device pass.** Install the PWA and run tap -> speak ->
+  tap -> copy, then a five-minute auto-stop, an airplane-mode upload failure, an
+  incoming phone call mid-recording, and a deploy while holding a transcript.
+- [ ] **V3-V2 — iPhone pass.** In Safari: the first tap shows the system
+  microphone prompt, a recording completes end to end, the level meter moves
+  rather than flatlining, and the blob is `audio/mp4` and accepted. Then deny
+  permission deliberately and confirm the error names Safari's Website Settings.
+  Finally add it to the Home Screen and repeat -- that is a separate permission
+  context. If standalone mode cannot open the microphone at all on current iOS,
+  record that in the README rather than trying to fix it.

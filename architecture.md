@@ -1,7 +1,19 @@
-# RabbleBabble Android PWA v1 Architecture
+# RabbleBabble Architecture
 
-This is the technical specification for the v1 scope in `plan.md`. It intentionally
-contains no local inference, history database, backend, or cross-device synchronization.
+**Normative.** Where this document and the code disagree, one of them is a bug --
+and a normative document that disagrees with the code is worse than none, so
+say which. It covers V1 (`plan.md`), V2 (`docs/v2-plan.md`) and V3
+(`docs/v3-plan.md`); sections carry a `**V2.**` or `**V3.**` note where the
+shape changed.
+
+It intentionally contains no local inference, no server-side history, no
+cross-device synchronisation, and no cloud storage of audio or transcripts.
+
+**V3.** Audio is now buffered on the *device* -- to IndexedDB, while a
+recording is in flight, deleted as soon as a transcript comes back -- because
+losing a recording to a reload or a failed upload was the one thing this
+product must never do. Opt-in transcript history (off by default) lives in the
+same store. Neither is a server-side store, and neither is synced.
 
 ## 1. Runtime Shape
 
@@ -186,12 +198,26 @@ File: `src/platform/audio/types.ts`
 ```ts
 import type { Unsubscribe } from "../types";
 
-export type RecordingState = "idle" | "recording" | "stopping" | "disposed";
+export type RecordingState =
+  | "idle"
+  | "recording"
+  | "stopping"
+  // V3. The recorder ended itself at a limit, or lost the microphone, with
+  // nobody waiting on stop(). The recording is retained and the state is
+  // published, so the UI can never keep claiming to record into a dead stream.
+  | "auto-stopped"
+  | "disposed";
+
+/** V3. Everything but "user" is the recorder ending itself. */
+export type RecordingEndCause = "user" | "duration-limit" | "byte-limit" | "interrupted";
 
 export interface AudioRecording {
+  /** V3. Identifies the buffered copy in the local store. */
+  readonly id: string;
   readonly blob: Blob;
   readonly mimeType: string;
   readonly durationMs: number;
+  readonly endedBy: RecordingEndCause;
 }
 
 export interface AudioRecorderOptions {
@@ -199,10 +225,17 @@ export interface AudioRecorderOptions {
   readonly audio?: MediaTrackConstraints;
   readonly maxDurationMs?: number;
   readonly maxBytes?: number;
+  readonly audioBitsPerSecond?: number;
+  /** V3. Receives each timeslice as it arrives. See 4.7. */
+  readonly sink?: RecordingSink;
 }
 
 export interface AudioRecorder {
   readonly state: RecordingState;
+  /** V3. So the elapsed timer cannot reset when the screen remounts. */
+  readonly startedAt: number | null;
+  getInputLevel(): number | null;
+  /** MUST be called in the same turn as the gesture. Boundary rule 11. */
   start(): Promise<void>;
   stop(): Promise<AudioRecording>;
   cancel(): Promise<void>;
@@ -210,6 +243,21 @@ export interface AudioRecorder {
   dispose(): void;
 }
 ```
+
+> **V3.** When a limit fires or the microphone is lost with nobody awaiting
+> `stop()`, the adapter retains the assembled recording, publishes
+> `"auto-stopped"`, and `stop()` then resolves with what it kept. Previously it
+> dropped the blob, released the tracks and published nothing at all, so the UI
+> went on showing "Listening... tap to stop" and counted a timer past the cap.
+>
+> It also listens for track `ended` and `mute`, so a phone call taking the
+> microphone ends the recording with a reason instead of producing five minutes
+> of billed silence, and it resumes a suspended `AudioContext` -- on iOS a
+> context created outside a live user activation never produces samples, so the
+> level meter and the silence detection would both read a flat line.
+>
+> `resolveMimeType` no longer defaults to `"audio/webm"`. That default is
+> Android-shaped: on iOS it labels MPEG-4 bytes as WebM and Groq rejects them.
 
 `MediaRecorderAdapter` owns `getUserMedia`, `MediaRecorder`, stream tracks, and MIME
 selection. It never calls Groq or storage. It produces the native browser recording for
@@ -229,6 +277,11 @@ export interface Settings {
   readonly groqApiKey: string;
   readonly cleanupEnabled: boolean;
   readonly language: string;
+  /** V3. Opt-in on-device transcript history. Default false. */
+  readonly historyEnabled: boolean;
+  /** V3. Whisper's biasing hint. In service builds the server holds the copy
+      that actually reaches Groq; this is the local edit buffer. */
+  readonly vocabulary: string;
 }
 
 export type SettingsPatch = Partial<Settings>;
@@ -288,67 +341,87 @@ export interface ClipboardResult {
 
 export interface ClipboardAdapter {
   writeText(text: string): Promise<ClipboardResult>;
+  /** V3. False where navigator.share is missing, so the UI does not offer it. */
+  canShare(): boolean;
+  /** V3. The system share sheet, reusing ClipboardResult for symmetry. */
+  shareText(text: string): Promise<ClipboardResult>;
 }
 ```
 
 `BrowserClipboard` first uses `navigator.clipboard.writeText`, then tries a temporary
 textarea with `document.execCommand("copy")` when the modern API is unavailable or
-denied. Both attempts must originate from the Copy button's user gesture. Clipboard
+denied. Both attempts must originate from the Copy button's user gesture -- this is
+boundary rule 11, and the microphone is the other place it applies. Clipboard
 failure never deletes the visible result.
+
+`shareText` reports a dismissed share sheet (`AbortError`) as `"empty"`, not as a
+failure: cancelling is the user saying no.
 
 ### 4.5 Inference
 
 File: `src/platform/inference/types.ts`
 
 > **V2.** This port was `GroqClient` and carried an `apiKey` on every request.
-> It is now `InferenceClient`: no credential in the request shape, because
-> `BackendClient` has none to give. `ensureReady()` answers "would a request be
-> accepted right now?" and is awaited BEFORE the microphone opens, so a missing
-> key or a dead session costs the user no speech. Models, limits and prompts moved
-> to `src/shared/` so the Worker uses the same definitions.
+> It is now `InferenceClient`: no credential in the request shape at all,
+> because `BackendClient` has none to give. Models, limits and prompts moved to
+> `src/shared/` so the Worker uses the same definitions.
+>
+> **V3.** `ensureReady(): Promise<void>` became `checkReady(): void`. It never
+> performed I/O -- it was a synchronous check wearing an async signature -- and
+> it sits between the record tap and `getUserMedia`, where a single `await`
+> loses the user activation WebKit needs to prompt for the microphone. See
+> boundary rule 11. Both invariants hold as a result: a dead session still
+> costs the user no speech, and the gesture still reaches the microphone.
+>
+> `transcribe` also takes an optional `vocabulary`. The bring-your-own-key
+> adapter forwards it as Whisper's `prompt`; `BackendClient` accepts and
+> IGNORES it, because the Worker reads the saved vocabulary from the session
+> row -- so it remains true that a client cannot influence a single field of
+> the Groq form.
 
 ```ts
 import type { AudioRecording } from "../audio/types";
 
-export interface GroqClientOptions {
+export interface InferenceClientOptions {
   readonly baseUrl?: string;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
   readonly transcriptionTimeoutMs?: number;
 }
 
-export interface GroqTranscriptionResponse {
+export interface TranscriptionResponse {
   readonly text: string;
 }
 
-export interface GroqCleanupResponse {
+export interface CleanupResponse {
   readonly text: string;
 }
 
-export interface GroqRewriteResponse {
+export interface RewriteResponse {
   readonly text: string;
 }
 
-export interface GroqClient {
+export interface InferenceClient {
+  /** Synchronous by contract. Throws an AdapterError when not ready. */
+  checkReady(): void;
+
   transcribe(request: {
-    readonly apiKey: string;
     readonly audio: AudioRecording;
     readonly language?: string;
+    readonly vocabulary?: string;
     readonly signal?: AbortSignal;
-  }): Promise<GroqTranscriptionResponse>;
+  }): Promise<TranscriptionResponse>;
 
   cleanup(request: {
-    readonly apiKey: string;
     readonly text: string;
     readonly signal?: AbortSignal;
-  }): Promise<GroqCleanupResponse>;
+  }): Promise<CleanupResponse>;
 
   rewrite(request: {
-    readonly apiKey: string;
     readonly text: string;
     readonly instruction: string;
     readonly signal?: AbortSignal;
-  }): Promise<GroqRewriteResponse>;
+  }): Promise<RewriteResponse>;
 }
 ```
 
@@ -360,15 +433,23 @@ https://api.groq.com/openai/v1/audio/transcriptions
 https://api.groq.com/openai/v1/chat/completions
 ```
 
-It receives the current API key on each request, sends it as a Bearer token, uses
+`GroqHttpClient` reads the current API key from an injected provider at call
+time (not per request argument), sends it as a Bearer token, uses
 multipart form data for transcription, and uses OpenAI-compatible chat messages for
 cleanup. It derives a `.webm` or `.mp4` filename from the recording MIME type and sends
 the native recording without WAV conversion. It omits the `language` field when the
-setting is empty. It rejects audio over 25 MB before upload. Transcription uses a
-120-second default timeout; cleanup and rewrite use a 30-second default timeout. Network
-and 5xx errors retry up to three attempts with 1-second then 2-second exponential backoff.
-Transcription timeouts do not automatically re-upload the recording. It never retries an
-aborted request and does not retry 400, 401, 403, 404, or 429 responses.
+setting is empty, and the `prompt` field when no vocabulary is saved. It rejects audio
+over 25 MB before upload. Transcription uses a 120-second default timeout; cleanup and
+rewrite use a 30-second default timeout. Network and 5xx errors retry up to three
+attempts with 1-second then 2-second exponential backoff. Transcription timeouts do not
+automatically re-upload the recording. It never retries an aborted request and does not
+retry 400, 401, 403, 404, or 429 responses.
+
+> **V3.** The *Worker's* gateway (`worker/src/groq/gateway.ts`) uses a tighter
+> budget than the browser adapter: two attempts and a 45-second transcription
+> timeout, for a 91-second worst case. Cloudflare's edge returns its own 524 at
+> roughly 100 seconds, and past that the user gets a Cloudflare error page
+> instead of the JSON error envelope the entire client error model depends on.
 
 The cleanup prompt is:
 
@@ -411,28 +492,60 @@ export interface DictationResult {
   readonly cleanupFailed: boolean;
 }
 
+/**
+ * V3. One object, one subscription.
+ *
+ * State, result and error used to be read three different ways -- two of them
+ * component state that unmounted on navigation -- which is how the app came to
+ * show "Something needs your attention" with nothing saying what.
+ */
+export interface DictationSnapshot {
+  readonly state: DictationState;
+  readonly result: DictationResult | null;
+  readonly error: AdapterError | null;
+  readonly notice: string | null;
+  readonly canRetry: boolean;
+  readonly recoverable: BufferedRecording | null;
+}
+
 export interface DictationFlow {
+  /** Stable by identity between changes: useSyncExternalStore compares that way. */
+  getSnapshot(): DictationSnapshot;
   readonly state: DictationState;
   readonly result: DictationResult | null;
   start(): Promise<void>;
   stop(): Promise<DictationResult>;
+  /** V3. Re-sends a held recording after a failed upload. No re-recording. */
+  retryUpload(): Promise<DictationResult>;
+  /** V3. Transcribes a buffered orphan the user has accepted. */
+  recoverBuffered(): Promise<DictationResult>;
+  discardBuffered(): Promise<void>;
   rewrite(instruction: string): Promise<DictationResult>;
   cancel(): Promise<void>;
-  subscribe(listener: (state: DictationState) => void): Unsubscribe;
+  subscribe(listener: () => void): Unsubscribe;
 }
 ```
 
-The flow checks that a key exists before starting a recording, then reads current settings
-through `SettingsRepository` again when `stop()` starts. It must perform this sequence:
+The flow calls `checkReady()` -- synchronously, boundary rule 11 -- before
+starting a recording, and reads current settings through `SettingsRepository`
+again when delivery starts. It must perform this sequence:
 
 ```text
+check readiness (synchronously)
 start recording
 stop recording
+hold the recording on the service
+check readiness again
 transcribe with Groq
 if cleanupEnabled: clean with Groq
 if cleanup fails: return raw text with cleanupFailed=true
-show result
+show result, delete the held recording and its buffered copy
 ```
+
+> **V3.** The second readiness check moved to *after* the recorder has stopped.
+> It used to run first and cancel the recording on failure, so a session that
+> expired mid-recording destroyed the audio -- the exact failure the check
+> existed to protect the user from.
 
 After a completed result, `rewrite(instruction)` sends the current `finalText` and the
 instruction to Groq. A successful rewrite replaces only `finalText`; repeated rewrites
@@ -449,7 +562,74 @@ a partial result. The flow releases the request controller after completion or e
 While rewriting, `cancel()` aborts the rewrite, preserves the completed result, and returns
 to `completed`. A late rewrite response must not replace the preserved result.
 
-No result is persisted. No audio is retained after the flow completes or is cancelled.
+> **V3.** The recording is held on the service, not in a local inside
+> `runStop()`. Any throw on the upload path used to discard it, with no retry
+> affordance anywhere in the UI. `retryUpload()` re-sends the same bytes; the
+> snapshot's `canRetry` says when that is worth offering.
+>
+> A recording the recorder ended by itself is absorbed by a subscription to the
+> recorder's state: the flow runs the normal transcribe path on it and sets
+> `notice` to say why it ended.
+
+No result is persisted server-side. Audio does not outlive its transcript: the
+held reference is dropped and the buffered copy in the local store is deleted
+the moment a transcript comes back, and both are dropped on cancellation.
+
+### 4.7 Local store
+
+**V3.** File: `src/platform/store/types.ts`
+
+```ts
+import type { AudioRecording } from "../audio/types";
+
+export interface BufferedRecording {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly mimeType: string;
+  readonly bytes: number;
+}
+
+export interface HistoryEntry {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly text: string;
+}
+
+export interface RecordingSink {
+  open(recordingId: string, mimeType: string): void;
+  write(recordingId: string, chunk: Blob): void;
+  close(recordingId: string): void;
+}
+
+export interface LocalStore extends RecordingSink {
+  listRecordings(): Promise<readonly BufferedRecording[]>;
+  loadRecording(id: string): Promise<AudioRecording | null>;
+  dropRecording(id: string): Promise<void>;
+
+  saveTranscript(text: string): Promise<void>;
+  listTranscripts(): Promise<readonly HistoryEntry[]>;
+  clearTranscripts(): Promise<void>;
+
+  sweep(nowMs: number): Promise<void>;
+}
+```
+
+`IdbStore` is the only adapter. Three rules define it:
+
+1. **It is a buffer, not an archive.** Each ten-second timeslice is written as
+   it arrives, and the record is deleted the moment a transcript comes back.
+   That deletion is what keeps "in-flight audio only" an honest claim.
+2. **Failing to buffer must never stop a recording.** Every method resolves
+   rather than rejects when the platform refuses -- a private window, a storage
+   quota, IndexedDB switched off -- and `MediaRecorderAdapter` calls the sink
+   inside a `try`/`catch` that swallows deliberately.
+3. **An orphan found at boot is offered, never transcribed.** Spending the
+   user's quota on audio they may have abandoned on purpose is not a favour.
+
+Buffered audio is swept after 24 hours or three recordings, whichever comes
+first. Opt-in transcript history (`historyEnabled`, default false) lives in the
+same database, capped at 20 entries, device-only, never synced, clearable in one
+tap.
 
 ## 5. Error Behavior
 
@@ -474,13 +654,27 @@ No result is persisted. No audio is retained after the flow completes or is canc
 
 - HTTPS is required for microphone access, Clipboard API, installation, and service
   workers.
-- Use `vite-plugin-pwa` with `registerType: "autoUpdate"`.
+- **V3.** Use `vite-plugin-pwa` with `registerType: "prompt"`, never
+  `"autoUpdate"`. The latter compiles to a `location.reload()` on controller
+  change, so deploying while a user held an uncopied transcript destroyed it.
+  The app offers the update instead, and holds the offer back while a recording
+  is in progress or a transcript is on screen.
 - Precache only the application shell and icons.
 - Never cache requests to `api.groq.com`.
-- Never store audio, API keys, or transcripts in Cache Storage.
-- No COOP/COEP headers are required because v1 has no WASM or WebGPU.
+- Never store audio, API keys, or transcripts in Cache Storage. The IndexedDB
+  buffer in 4.7 is a different thing, on purpose: it is same-origin, it is not
+  a cache the service worker manages, and it is deleted on delivery.
+- **V3.** Real security headers ship as `dist/_headers`, generated from the
+  same `contentSecurityPolicy()` function as the `<meta>` tag so the two cannot
+  drift. `run_worker_first` covers only `/v1/*` and `/auth/*`, so asset
+  responses never invoke the Worker and `applySecurityHeaders` never ran on the
+  app shell at all. The `<meta>` tag stays -- GitHub Pages cannot serve custom
+  headers, so it is the only policy the bring-your-own-key build gets -- and is
+  injected at the top of `<head>`, ahead of the bundle links.
 - The manifest uses `display: "standalone"`, `start_url: "."`, and both 192px and 512px
-  Android icons.
+  Android icons. **V3.** It also declares `id`, which must be set *before*
+  anything ever changes `start_url`: install identity keys on `start_url`, so
+  changing it later orphans every existing install.
 
 ## 7. Testing Boundary
 
@@ -495,4 +689,20 @@ Test only the small boundaries:
 - Rewrite success, failure, repeated rewrites, and cancellation with mocked adapters.
 - Recording duration/size limits, invalid flow transitions, cancellation, and wake-lock
   release behavior.
-- Manual Android install and microphone/clipboard testing.
+- **V3.** React screen behaviour with `@testing-library/react`: every Phase 0
+  bug lived in that layer, which had no tests at all.
+- **V3.** That `getUserMedia` is reached with no awaited promise between it and
+  the click handler (`src/ui/gesturePreservation.test.tsx`). This is testable
+  without Safari, and it is what stops the regression coming back -- every
+  platform except iOS forgives it.
+- **V3.** An exhaustiveness table over `AdapterErrorCode`, so a code with no
+  copy written for it is a test failure rather than a raw adapter message shown
+  to a user.
+- **V3.** The Worker gateway's retry, backoff and timeout paths. Every earlier
+  test used `mockResolvedValue`, which succeeds first time and therefore never
+  exercised any of them.
+- **V3.** One Playwright happy path against real build output, plus the retry
+  path. It is the only check that runs the real bundle, the real service-worker
+  registration and the real CSP together.
+- Manual Android install and microphone/clipboard testing, plus a real iPhone
+  for the Phase 6 microphone work.

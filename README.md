@@ -199,8 +199,10 @@ hostname would serve a copy whose sign-in cannot work.
 
 - `.github/workflows/ci.yml` gates every pull request on lint, typecheck, tests
   and both builds.
-- `.github/workflows/deploy-worker.yml` deploys on manual dispatch, applying D1
-  migrations first.
+- `.github/workflows/deploy-worker.yml` deploys on manual dispatch to a chosen
+  target, applying D1 migrations first and smoking the result afterwards.
+  Production refuses to run from any ref but `main`.
+- `.github/dependabot.yml` opens grouped weekly dependency and action updates.
 - `.github/workflows/deploy-pages.yml` publishes the bring-your-own-key build to
   `https://timgras2.github.io/RabbleBabble/`.
 
@@ -208,7 +210,8 @@ hostname would serve a copy whose sign-in cannot work.
 
 - `plan.md` - V1 product scope and decisions
 - `architecture.md` - runtime boundaries and contracts (normative)
-- `docs/v2-plan.md` - the multi-user plan this backend implements
+- `docs/v2-plan.md` - the multi-user plan the backend implements
+- `docs/v3-plan.md` - durability, hardening and the four V2 backlog features
 - `task_list.md` - sequential implementation tasks
 
 Basic interface icons use [Lucide](https://lucide.dev/), an ISC-licensed
