@@ -3,7 +3,29 @@
 	"name": "rabblebabble",
 	"main": "worker/src/index.ts",
 	"compatibility_date": "2026-09-05",
-	"workers_dev": true,
+	// One origin only. Leaving workers.dev on keeps a second hostname serving the
+	// same app, and that copy is subtly broken: requireSameSite rejects its
+	// mismatched Origin, and the __Host- session cookie set on rabblebabble.cc
+	// does not apply to it. Sign-in would appear to work and then not.
+	"workers_dev": false,
+	// Created in the dashboard first, then declared here so the deployment lives
+	// in git. Attaching it needs an API token with Zone:DNS:Edit and
+	// Workers Routes:Edit, not just "Edit Cloudflare Workers".
+	"routes": [
+		{
+			"pattern": "rabblebabble.cc",
+			"custom_domain": true
+		}
+	],
+	// Load-bearing for local development. Without it, `wrangler dev` simulates
+	// the route above and hands the Worker an Origin of rabblebabble.cc, which
+	// no local request can match - every POST 403s on the same-site guard. The
+	// port has to be in `host` too: `host: "localhost"` alone strips it, and
+	// http://localhost is not http://localhost:8787 to an origin comparison.
+	"dev": {
+		"host": "localhost:8787",
+		"port": 8787
+	},
 	// One Worker serves the PWA and the API from a single origin. That is what
 	// keeps the session cookie first-party, removes CORS entirely, and lets the
 	// build-time CSP stay at connect-src 'self'. Asset requests are free and do
@@ -37,10 +59,12 @@
 		"head_sampling_rate": 1
 	},
 	"vars": {
-		"APP_ORIGIN": "https://rabblebabble.rabblebabble.workers.dev",
+		// Production values. `npm run dev:worker` overrides the first and third
+		// with --var, which outranks both .dev.vars and this block.
+		"APP_ORIGIN": "https://rabblebabble.cc",
 		"SIGNUP_MODE": "invite",
-		"EMAIL_MODE": "console",
-		"EMAIL_FROM": "RabbleBabble <login@example.invalid>",
+		"EMAIL_MODE": "resend",
+		"EMAIL_FROM": "RabbleBabble <login@send.rabblebabble.cc>",
 		"MAGIC_LINK_TTL_SECONDS": "900",
 		"SESSION_TTL_SECONDS": "31536000",
 		"REQUIRE_SAME_DEVICE_LINK": "true",

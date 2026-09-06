@@ -4,7 +4,9 @@
 # The central Groq key. This is the whole reason the backend exists.
 GROQ_API_KEY="gsk_replace_me"
 
-# Resend API key. Leave as-is while EMAIL_MODE=console.
+# Resend API key. Only needed when you deliberately exercise real sending with
+# `npm run dev:worker:mail`; `npm run dev:worker` forces EMAIL_MODE=console and
+# never dials out. In production this is a Worker secret, not a var.
 RESEND_API_KEY="re_replace_me"
 
 # 32 random bytes, base64. Makes stored IP hashes non-reversible, so abuse
