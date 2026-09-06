@@ -166,27 +166,62 @@ button:disabled { cursor: not-allowed; }
 
 .screen { width: 100%; max-width: 700px; min-width: 0; margin: 0 auto; }
 .recorder-screen { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* Before there is a transcript, the hero and the dial are one short, fixed
+   composition with nothing that needs to claim the rest of the screen -- so
+   they centre as a group instead of the (empty) transcript zone stretching
+   to fill the leftover space and shoving that group down toward the button.
+   Once a result exists, .transcript-zone goes back to flex: 1 1 0 and takes
+   over that space itself, which is what moves the dial down to make room. */
+.recorder-screen--idle { justify-content: center; }
+.recorder-screen--idle .transcript-zone { flex: 0 0 auto; }
 /* Zone 1: content appears in place instead of pushing the button down.
    Grid with `safe center` so a short transcript centres but a long one scrolls
    from the top instead of being clipped -- flex centring would hide the head
    of an overflowing transcript, and flex children would shrink rather than
-   scroll. */
-/* 0.85 against the action zone's 1, not an even split: the action side carries
-   more content than the hero above it, so an even split leaves the group
-   sitting visibly below centre. */
-.transcript-zone { flex: 0.85 1 0; min-height: 0; display: grid; align-content: safe end; gap: 14px; overflow-y: auto; padding: 4px 0 20px; }
+   scroll. Takes every pixel the action zone below does not actually need
+   (that zone is flex: 0 0 auto -- its own content is what is fixed, not a
+   share of the screen), which is what gives a long transcript the most
+   possible room to read rather than being capped at an arbitrary split. */
+/* An explicit row size (rather than auto, content-based) is what lets
+   .result-card--top below stretch to fill exactly the space this zone has,
+   instead of growing to its content and forcing this outer grid to scroll
+   too -- which is what produced two scrollbars. Hero/placeholder/notice opt
+   back out of that stretch (see their own rules) to keep their old
+   short-content-sits-toward-the-bottom look. */
+.transcript-zone { flex: 1 1 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); align-content: safe end; gap: 14px; overflow-y: auto; padding: 4px 0 20px; margin-bottom: 14px; }
 .transcript-zone > * { min-height: 0; }
-.transcript-placeholder { margin: 0; color: var(--muted-3); font-family: Georgia, "Times New Roman", serif; font-size: 18px; text-align: center; }
+/* Fills the row's now-explicit height, then hands the leftover space to
+   .transcript-scroll below via flex -- so the card's own height always
+   matches what the zone actually has, and never needs the zone itself to
+   scroll around it. */
+.result-card--top { display: flex; flex-direction: column; min-height: 0; gap: 16px; }
+/* The scrollable part of a result: only the transcript text lives in here.
+   The header above it and every button below it (copy, rewrite) sit in the
+   card's normal flow, outside this box, so they are always fully visible --
+   never something you have to scroll past to reach. */
+.transcript-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  overflow-y: auto;
+  background-color: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  transition: mask-image .15s ease, -webkit-mask-image .15s ease;
+}
+.transcript-placeholder { align-self: safe end; margin: 0; color: var(--muted-3); font-family: Georgia, "Times New Roman", serif; font-size: 18px; text-align: center; }
 /* Zone 2: the primary action, anchored where a thumb rests. */
-/* Two equal zones split at the vertical midline: the transcript grows upward
-   from that line and the dial sits on it. So the dial reads as centred and
-   still never moves, whether the transcript is empty or overflowing. */
-.action-zone { flex: 1 1 0; min-height: 0; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+/* Sized to its own content, not a share of the screen: this zone's height
+   barely varies (the busy-state cancel button is the only real difference),
+   so flex: 0 0 auto keeps the dial sitting at essentially the same spot
+   regardless of the transcript above it, while giving that transcript every
+   pixel this zone is not actually using. */
+.action-zone { flex: 0 0 auto; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .action-zone__status { display: grid; justify-items: center; gap: 6px; min-height: 40px; }
 /* Reserved so the dial does not jump down when the timer appears -- it must
    not move at the moment you tap it. */
 .action-zone__timer { min-height: 22px; display: grid; place-items: center; }
-.hero-panel { padding: 8px 0 4px; text-align: center; }
+.hero-panel { align-self: safe end; padding: 8px 0 4px; text-align: center; }
 /* Sans for all chrome, serif reserved for the transcript. That contrast --
    quiet sans UI around warm serif content -- is the typographic identity;
    a serif display headline was doing landing-page work. */
@@ -235,7 +270,7 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
   .spin { animation: none; }
 }
 
-.notice { width: 100%; margin: 0; padding: 15px 17px; border-radius: 15px; display: flex; align-items: flex-start; gap: 11px; font-size: 13px; line-height: 1.4; }
+.notice { width: 100%; align-self: safe end; margin: 0; padding: 15px 17px; border-radius: 15px; display: flex; align-items: flex-start; gap: 11px; font-size: 13px; line-height: 1.4; }
 .notice--error { color: var(--danger-ink); background: var(--danger-bg); border: 1px solid var(--danger-border); }
 .notice div { flex: 1; display: grid; gap: 2px; }
 .notice strong { font-size: 13px; }
@@ -245,14 +280,14 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
 /* Sentence case, no tracking: the all-caps tracked label was decoration. */
 .result-card__header { display: flex; justify-content: space-between; color: var(--muted-2); font-size: 12px; font-weight: 700; }
 .result-card__check { display: inline-flex; align-items: center; gap: 4px; color: var(--signal-ok); }
-.result-card p { margin: 20px 0 22px; color: var(--ink-2); font-family: Georgia, "Times New Roman", serif; font-size: 22px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.result-card p { margin: 0; color: var(--ink-2); font-family: Georgia, "Times New Roman", serif; font-size: 22px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .copy-button, .primary-button { min-height: 46px; border: 0; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; color: var(--on-dark); background: var(--ink); font-size: 13px; font-weight: 800; }
 .copy-button { width: 100%; transition: background .18s ease; }
 .copy-button--copied { background: var(--signal-ok); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.rewrite-trigger { width: 100%; min-height: 44px; margin: 0 0 12px; border: 1px solid var(--border); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink-4); background: transparent; font-size: 13px; font-weight: 800; }
+.rewrite-trigger { width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--ink-4); background: transparent; font-size: 13px; font-weight: 800; }
 .rewrite-trigger:hover { border-color: var(--ink); color: var(--ink); }
-.rewrite-form { margin: 0 0 14px; padding: 15px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-alt); }
+.rewrite-form { padding: 15px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-alt); }
 .rewrite-form label { display: block; margin-bottom: 9px; color: var(--ink-3); font-size: 12px; font-weight: 800; }
 .rewrite-form textarea { width: 100%; min-height: 92px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; resize: vertical; outline: 0; color: var(--ink-2); background: var(--surface); font-size: 13px; line-height: 1.45; }
 .rewrite-form textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px var(--focus-tint); }
@@ -266,8 +301,8 @@ h1 { margin: 0 0 12px; color: var(--ink); font-size: clamp(26px, 6vw, 32px); fon
 .rewrite-form__apply { border: 0; color: var(--on-dark); background: var(--ink); }
 .rewrite-form__apply:disabled { cursor: not-allowed; opacity: .55; }
 .rewrite-form__cancel { padding: 0 14px; border: 1px solid var(--border); color: var(--muted); background: transparent; }
-.inline-warning, .copy-status { margin: 0 0 15px; display: flex; align-items: center; gap: 6px; color: var(--warn); font-size: 12px; line-height: 1.4; }
-.copy-status { margin: 11px 0 0; color: var(--signal-ok); justify-content: center; }
+.inline-warning, .copy-status { margin: 0; display: flex; align-items: center; gap: 6px; color: var(--warn); font-size: 12px; line-height: 1.4; }
+.copy-status { color: var(--signal-ok); justify-content: center; }
 .copy-status--error { color: var(--danger); }
 .trust-line { margin-top: auto; padding: 4px 8px 0; display: flex; justify-content: center; align-items: center; gap: 7px; color: var(--muted-3); font-size: 11px; text-align: center; }
 

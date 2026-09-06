@@ -1,5 +1,5 @@
 import { AlertCircle, Check, Clipboard, Info, Pencil, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppServices } from "../app/types";
 import { useDictation } from "../hooks/useDictation";
 import { AdapterError } from "../platform/errors";
@@ -113,6 +113,39 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
 
   const errorMessage = dictation.error ? messageForError(dictation.error) : null;
   const hasResult = Boolean(dictation.result);
+
+  // Only the transcript text scrolls, inside its own bounded box -- the
+  // header and every button below it (copy, rewrite) stay in normal flow
+  // beneath that box, never inside the scrolling area themselves.
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollFade, setScrollFade] = useState({ up: false, down: false });
+
+  // Fading real content (rather than masking it permanently) means the fade
+  // only shows on an edge that genuinely has more to scroll to, and clears
+  // once you have actually reached it.
+  const updateScrollFade = useCallback(() => {
+    const el = transcriptScrollRef.current;
+    if (!el) return;
+    const slack = 2;
+    setScrollFade({
+      up: el.scrollTop > slack,
+      down: el.scrollTop + el.clientHeight < el.scrollHeight - slack,
+    });
+  }, []);
+
+  useEffect(() => {
+    updateScrollFade();
+  }, [updateScrollFade, hasResult, dictation.result, dictation.state]);
+
+  useEffect(() => {
+    const el = transcriptScrollRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(updateScrollFade);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateScrollFade]);
+
+  const scrollFadeMask = buildScrollFadeMask(scrollFade);
   // The intro explains the product to a first-time user; once they have a
   // finished transcript it is dead weight in front of the tool, so it retires
   // for the rest of this session. It is not persisted, so it greets again
@@ -124,7 +157,7 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
   const showIntro = !everCompletedThisSession;
 
   return (
-    <main className="screen recorder-screen">
+    <main className={`screen recorder-screen${hasResult ? "" : " recorder-screen--idle"}`}>
       <div className="transcript-zone" aria-live="polite">
         {showIntro && !hasResult && (
           <section className="hero-panel">
@@ -140,7 +173,14 @@ export function RecorderScreen({ services, onOpenSettings, onSignIn }: RecorderS
       {hasResult && dictation.result && (
         <section className="result-card result-card--top" aria-label="Transcript">
           <div className="result-card__header"><span>Final transcript</span><span className="result-card__check"><Check size={14} /> {dictation.state === "rewriting" ? "Updating" : "Ready"}</span></div>
-          <p>{dictation.result.finalText}</p>
+          <div
+            ref={transcriptScrollRef}
+            className="transcript-scroll"
+            style={scrollFadeMask ? { WebkitMaskImage: scrollFadeMask, maskImage: scrollFadeMask } : undefined}
+            onScroll={updateScrollFade}
+          >
+            <p>{dictation.result.finalText}</p>
+          </div>
           {dictation.result.cleanupFailed && (
             <div className="inline-warning"><Info size={15} /> Cleanup was unavailable, so the raw transcript is shown.</div>
           )}
@@ -241,6 +281,17 @@ function formatDuration(durationMs: number): string {
 function useStateCopyStatus() {
   const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   return [status, setStatus] as const;
+}
+
+const SCROLL_FADE_PX = 28;
+
+function buildScrollFadeMask({ up, down }: { readonly up: boolean; readonly down: boolean }): string | undefined {
+  if (!up && !down) {
+    return undefined;
+  }
+  const top = up ? `transparent 0, black ${SCROLL_FADE_PX}px` : "black 0";
+  const bottom = down ? `black calc(100% - ${SCROLL_FADE_PX}px), transparent 100%` : "black 100%";
+  return `linear-gradient(to bottom, ${top}, ${bottom})`;
 }
 
 
