@@ -203,3 +203,61 @@ describe("MediaRecorderAdapter", () => {
     expect(adapter.startedAt).toBeGreaterThan(0);
   });
 });
+
+describe("level analyser", () => {
+  function installAudioContext(state: "running" | "suspended", resume: () => Promise<void>) {
+    const analyser = {
+      fftSize: 1024,
+      smoothingTimeConstant: 0.6,
+      getByteTimeDomainData: () => undefined,
+      connect: () => undefined,
+    };
+    class FakeAudioContext {
+      state = state;
+      resume = resume;
+      close = async () => undefined;
+      createAnalyser = () => analyser;
+      createMediaStreamSource = () => ({ connect: () => analyser });
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+  }
+
+  /**
+   * On iOS an AudioContext created outside a live user activation starts
+   * suspended and never produces samples, so getByteTimeDomainData returns a
+   * flat line -- which the meter shows as silence, and which the silence
+   * detection in the recorder screen would report on every single recording.
+   */
+  it("resumes a suspended context", async () => {
+    const resume = vi.fn(async () => undefined);
+    installAudioContext("suspended", resume);
+    installMedia(streamOf([audioTrack()]));
+
+    await new MediaRecorderAdapter().start();
+
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resume a context that is already running", async () => {
+    const resume = vi.fn(async () => undefined);
+    installAudioContext("running", resume);
+    installMedia(streamOf([audioTrack()]));
+
+    await new MediaRecorderAdapter().start();
+
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it("keeps recording when resume rejects", async () => {
+    // The analyser is explicitly an enhancement, and Safari has rejected
+    // resume() for reasons that have nothing to do with the microphone.
+    installAudioContext("suspended", () => Promise.reject(new Error("no")));
+    installMedia(streamOf([audioTrack()]));
+    const adapter = new MediaRecorderAdapter();
+
+    await adapter.start();
+
+    expect(adapter.state).toBe("recording");
+    await expect(adapter.stop()).resolves.toMatchObject({ endedBy: "user" });
+  });
+});
