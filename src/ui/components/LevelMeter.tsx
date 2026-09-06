@@ -24,10 +24,18 @@ export function LevelMeter({ recorder, active }: LevelMeterProps) {
       return;
     }
 
-    const reduceMotion =
-      typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) {
-      return;
+    // Watched, not sampled once at setup: the preference can be switched on
+    // mid-recording, and this effect does not re-run when it is.
+    const query =
+      typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+    if (query?.matches === true) {
+      const onChange = () => {
+        if (!query.matches) {
+          start();
+        }
+      };
+      query.addEventListener("change", onChange);
+      return () => query.removeEventListener("change", onChange);
     }
 
     let frame = 0;
@@ -46,8 +54,25 @@ export function LevelMeter({ recorder, active }: LevelMeterProps) {
       frame = requestAnimationFrame(draw);
     };
 
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    function start() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(draw);
+    }
+
+    const onChange = () => {
+      if (query?.matches === true) {
+        cancelAnimationFrame(frame);
+      } else {
+        start();
+      }
+    };
+    query?.addEventListener("change", onChange);
+
+    start();
+    return () => {
+      cancelAnimationFrame(frame);
+      query?.removeEventListener("change", onChange);
+    };
   }, [active, recorder]);
 
   return (
