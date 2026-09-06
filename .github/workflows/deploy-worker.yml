@@ -1,5 +1,29 @@
 name: Deploy Worker
 
+# ---------------------------------------------------------------------------
+# NOT WIRED UP. This workflow has never successfully deployed anything.
+#
+# It needs secrets.CLOUDFLARE_API_TOKEN, and no such secret exists -- not on
+# the repository, not on any environment. Every Worker deploy this project has
+# had, rabblebabble.cc included, came from `wrangler` on a maintainer's machine
+# with local credentials. Deploy that way:
+#
+#     npm run db:migrate:staging && npm run deploy:staging
+#     npm run db:migrate         && npm run deploy
+#
+# Two things to fix before trusting this file, because neither is true today:
+#
+#   1. No token. Create one (Workers Scripts: Edit + D1: Edit) and add it as
+#      CLOUDFLARE_API_TOKEN to BOTH the staging and production environments.
+#   2. No reviewer. The `environment:` key below does NOT create a gate -- a
+#      dispatch to a missing environment makes it on the fly with zero
+#      protection rules. That is what happened to `staging`. Create
+#      `production` by hand and give it a required reviewer, or the comment
+#      below is describing a gate that does not exist.
+#
+# Until both are done the job stops at the guard step with an explanation.
+# ---------------------------------------------------------------------------
+
 # Manual only, and now to a chosen environment. The dispatch UI will offer any
 # branch, so the ref restriction below is what stops an arbitrary branch going
 # straight to rabblebabble.cc with a token that has no protection rules of its
@@ -36,6 +60,25 @@ jobs:
     # not a plain repo secret any workflow run can reach.
     environment: ${{ inputs.target }}
     steps:
+      # Without this the run gets as far as building, then dies inside
+      # wrangler with "it's necessary to set a CLOUDFLARE_API_TOKEN
+      # environment variable" -- which reads like a wrangler bug rather than
+      # an unconfigured repository. Fail first, and say what to do instead.
+      - name: Refuse to run without Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not set for the '${{ inputs.target }}' environment. This workflow has never been wired up."
+            echo
+            echo "Deploy from a maintainer machine instead:"
+            echo "    npm run db:migrate:staging && npm run deploy:staging"
+            echo "    npm run db:migrate         && npm run deploy"
+            echo
+            echo "To enable this workflow, see the comment at the top of this file."
+            exit 1
+          fi
+
       - name: Refuse to deploy production from anywhere but main
         if: inputs.target == 'production' && github.ref != 'refs/heads/main'
         run: |

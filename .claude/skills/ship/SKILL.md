@@ -112,7 +112,8 @@ gh run watch $(gh run list --workflow=deploy-pages.yml --limit 1 --json database
 ## 5. Deploy the service build to staging
 
 Only if step 2 said the Worker is affected. Migrations first, then deploy,
-then prove it answers:
+then prove it answers. Hand these to the user the same way step 6b does if the
+permission mode blocks them:
 
 ```bash
 npm run db:migrate:staging
@@ -129,17 +130,54 @@ node scripts/smoke.mjs https://rabblebabble-staging.rabblebabble.workers.dev --r
 A clean smoke run is what makes staging "green". If it fails, stop here and
 report — do not carry a broken build to production.
 
-## 6. Production — confirm once, then go
+## 6. Production — establish the real diff first
 
-Staging green is the precondition. Then **ask the user a single yes/no in
-chat**, and wait for a clear answer. Name, in a few lines:
+**Never describe a production deploy from this session's commits.** The Worker
+is deployed by hand, so production can be arbitrarily far behind `main` — and
+has been: a `/ship` run once found it 19 commits and an unapplied migration
+behind while the session had produced only two. Reporting "shipping the quota
+fix" would have been true and badly misleading, because a feature release and a
+schema change were riding along unmentioned.
 
-- what is in the diff, in behavioural terms
-- whether any `wrangler.jsonc` change touches production config
-- whether a D1 migration will run against the real database
+So always start here, and read the output before saying anything. Both are
+read-only and permitted:
+
+```bash
+npx wrangler deployments status
+```
+
+```bash
+npx wrangler d1 migrations list rabblebabble --remote
+```
+
+Take the active deployment's timestamp and list every commit newer than it —
+that, not `origin/main..HEAD`, is what is going out:
+
+```bash
+git log --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format="%h %cd %s" -40
+```
+
+Compare in **UTC**. Commit timestamps carry a local offset and the deployment
+timestamp does not; mixing them silently misclassifies commits.
+
+Then ask the user a single yes/no in chat and wait for a clear answer, naming:
+
+- every commit going out, in behavioural terms — not just this session's
+- whether any top-level `wrangler.jsonc` change alters production config, and
+  which values move (hostnames, `EMAIL_MODE`, session TTL and quotas have all
+  changed in a single deploy before)
+- exactly which migrations `d1 migrations list` reported pending
 - that gates and staging smoke are green
 
-On a clear yes:
+## 6b. Hand the production commands to the user
+
+**Do not run the production commands yourself.** In this project's permission
+mode the auto-mode classifier blocks `npm run db:migrate` and `npm run deploy`,
+and the bare `wrangler` equivalents too. Attempting them wastes a turn and can
+half-complete a release.
+
+On a clear yes, print exactly these, in order, each in its own block, and ask
+the user to paste back the smoke output:
 
 ```bash
 npm run db:migrate
@@ -153,20 +191,36 @@ npm run deploy
 npm run smoke:prod
 ```
 
-Run the migration only when `worker/migrations/` actually changed. On anything
-short of a clear yes, stop and leave production alone.
+Include `db:migrate` **only** when `d1 migrations list` reported something
+pending. It must go first: the code expects the new schema, so deploying ahead
+of the migration breaks production.
+
+Then verify from here — these reads are permitted:
+
+```bash
+npx wrangler deployments status && npx wrangler d1 migrations list rabblebabble --remote
+```
+
+A changed deployment id plus "No migrations to apply!" is what proves it
+landed. On anything short of a clear yes, stop and leave production alone.
 
 ## 7. Report
 
 A few lines: commit SHA and subject; the Pages run result; the staging deploy
-and smoke result; the production result, or that it was not deployed and why;
-and any migration applied, naming the database. Link runs as full GitHub URLs
-under `timgras2/RabbleBabble`.
+and smoke result; the production deployment id **before and after**, the full
+set of commits it carried, and any migration applied, naming the database. Link
+runs as full GitHub URLs under `timgras2/RabbleBabble`.
+
+Say plainly what smoke did **not** cover: `--read-only` skips the 26 MB upload
+and the sign-in flow, so it will not trigger a real Resend send on every
+deploy. If the deploy changed `EMAIL_MODE` or `APP_ORIGIN`, recommend one real
+magic-link sign-in by hand, because nothing automated touched that path.
 
 ## Notes
 
-- `npm run smoke:prod` is `--read-only`: it skips the 26 MB upload and the
-  sign-in flow, so it will not trigger a real Resend send on every deploy.
+- The user can lift the production block by adding Bash permission rules for
+  `npm run db:migrate` and `npm run deploy` in `.claude/settings.json`. Until
+  they do, hand the commands off — do not retry them.
 - If `gh` is not authenticated (`gh auth status`), Pages still deploys on push
   — you just cannot watch the run. Say so rather than treating it as a failure.
 - Network egress may be blocked in some sandboxes; a failed `curl` to
