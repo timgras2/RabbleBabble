@@ -70,17 +70,69 @@ function stripTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
+/**
+ * The address Resend will send as: "user@example.com" or "Name <user@example.com>".
+ *
+ * Deliberately not RFC 5322. This only has to catch the mistakes that actually
+ * reach production, and the mistake that reaches production is shipping the
+ * placeholder. A From that Resend refuses is a 422 at the first sign-in
+ * attempt - long after the deploy that caused it, and swallowed by the
+ * no-enumeration catch in auth/routes, so nobody ever finds out.
+ */
+function requireSendableAddress(env: Env, name: keyof Env): string {
+  const value = requireString(env, name);
+  const angled = /^[^<>]*<([^<>]+)>$/.exec(value);
+  const address = (angled?.[1] ?? value).trim();
+  const at = address.lastIndexOf("@");
+  const local = at === -1 ? "" : address.slice(0, at);
+  const domain = at === -1 ? "" : address.slice(at + 1).toLowerCase();
+
+  if (!/^[^\s@<>]+$/.test(local) || !/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(domain)) {
+    throw new ConfigError(
+      `${String(name)} must be "user@example.com" or "Name <user@example.com>", got "${value}"`,
+    );
+  }
+  // .invalid is reserved by RFC 2606: it can never resolve, never hold SPF or
+  // DKIM, and never be verified in Resend. It is also the placeholder this
+  // repo ships with, so rejecting it is what stops "configured for Resend"
+  // from quietly meaning "configured with the example".
+  if (domain === "invalid" || domain.endsWith(".invalid")) {
+    throw new ConfigError(`${String(name)} is still the ${domain} placeholder, which can never send mail`);
+  }
+  return value;
+}
+
+/**
+ * Named rather than reusing requireString, purely for the message: this is the
+ * one configuration mistake whose only other symptom is mail that silently
+ * never arrives.
+ */
+function requireResendApiKey(env: Env): string {
+  const value = typeof env.RESEND_API_KEY === "string" ? env.RESEND_API_KEY.trim() : "";
+  if (value === "") {
+    throw new ConfigError(
+      "EMAIL_MODE=resend requires RESEND_API_KEY - set it with `wrangler secret put RESEND_API_KEY`",
+    );
+  }
+  return value;
+}
+
 export function readConfig(env: Env): Config {
   const appOrigin = stripTrailingSlash(requireString(env, "APP_ORIGIN"));
   // Parsed eagerly so a malformed origin fails at boot, not at the first
   // same-site check where it would silently reject every request.
   new URL(appOrigin);
 
+  const emailMode = requireOneOf(env, "EMAIL_MODE", ["resend", "console"] as const);
+  const sending = emailMode === "resend";
+
   return {
     appOrigin,
     signupMode: requireOneOf(env, "SIGNUP_MODE", ["invite", "open", "closed"] as const),
-    emailMode: requireOneOf(env, "EMAIL_MODE", ["resend", "console"] as const),
-    emailFrom: requireString(env, "EMAIL_FROM"),
+    emailMode,
+    // Console mode keeps the placeholder on purpose - it prints the link and
+    // never dials out. Sending mode gets parsed.
+    emailFrom: sending ? requireSendableAddress(env, "EMAIL_FROM") : requireString(env, "EMAIL_FROM"),
     magicLinkTtlSeconds: requirePositiveInt(env, "MAGIC_LINK_TTL_SECONDS"),
     sessionTtlSeconds: requirePositiveInt(env, "SESSION_TTL_SECONDS"),
     requireSameDeviceLink: requireBoolean(env, "REQUIRE_SAME_DEVICE_LINK"),
@@ -95,7 +147,7 @@ export function readConfig(env: Env): Config {
     groqBaseUrl: stripTrailingSlash(requireString(env, "GROQ_BASE_URL")),
     groqApiKey: requireString(env, "GROQ_API_KEY"),
     // Only needed when actually sending mail; console mode runs without one.
-    resendApiKey: typeof env.RESEND_API_KEY === "string" ? env.RESEND_API_KEY : "",
+    resendApiKey: sending ? requireResendApiKey(env) : "",
     ipHashPepper: requireString(env, "IP_HASH_PEPPER"),
   };
 }

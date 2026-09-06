@@ -6,7 +6,7 @@ import { requireClientHeader, requireSameSite } from "../http/guards";
 import { readJsonBody, readOptionalString, readString } from "../http/json";
 import { createUser, findUserByEmail, isPlausibleEmail, normaliseEmail } from "../db/users";
 import { consumeRateLimits, dayWindow, hourWindow } from "../db/rateLimits";
-import { magicLinkEmail } from "../email/port";
+import { EmailSendError, magicLinkEmail } from "../email/port";
 import { hashIp, isWellFormedToken, sha256Hex } from "./crypto";
 import { consumeMagicLink, issueMagicLink } from "./magicLink";
 import { consumeInvite, hashInviteCode, isInviteUsable } from "./invites";
@@ -105,8 +105,18 @@ export function registerAuthRoutes(app: App): void {
         await email.send(magicLinkEmail(address, url, Math.round(config.magicLinkTtlSeconds / 60)));
       } catch (error) {
         // Only reachable for an account that exists, so surfacing it would
-        // itself leak. Logged and swallowed.
-        console.error("[auth] magic link send failed", error);
+        // itself leak. Logged and swallowed - with the requestId, so it lines
+        // up with the request line app.ts writes for the same invocation.
+        // providerStatus, not status: app.ts already uses `status` for our own
+        // HTTP status, and two meanings for one key makes filtering useless.
+        console.error(
+          JSON.stringify({
+            requestId: c.get("requestId"),
+            event: "magic-link-send-failed",
+            providerStatus: error instanceof EmailSendError ? error.status : null,
+            detail: error instanceof EmailSendError ? error.detail : String(error),
+          }),
+        );
       }
       c.header("Set-Cookie", serializeLinkNonceCookie(link.nonce, LINK_NONCE_TTL_SECONDS));
 

@@ -12,7 +12,23 @@ export default defineProject(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "../wrangler.jsonc" },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            // Pinned so the suite does not depend on a developer's .dev.vars,
+            // which CI does not have and which readConfig requires. Every test
+            // injects its own fetcher and its own mailer, so these values are
+            // never used - they only have to satisfy readConfig.
+            GROQ_API_KEY: "test-groq-key",
+            RESEND_API_KEY: "test-resend-key",
+            IP_HASH_PEPPER: "dGVzdC1wZXBwZXItbm90LWEtc2VjcmV0LTAwMDAwMDA=",
+            // Pinned for the same reason the harness pins appOrigin: pointing
+            // the deployed config at a real domain and a real mailer must not
+            // change what the suite exercises.
+            APP_ORIGIN: "http://localhost:8787",
+            EMAIL_MODE: "console",
+          },
+        },
       }),
     ],
     test: {

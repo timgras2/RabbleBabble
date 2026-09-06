@@ -7,14 +7,25 @@ export interface EmailMessage {
 
 export interface EmailSender {
   send(message: EmailMessage): Promise<void>;
-  /**
-   * Set by the console adapter so the sign-in response can hand the link back
-   * in development. Undefined in production, where it must never be exposed.
-   */
-  readonly lastLink?: () => string | undefined;
 }
 
-export class EmailSendError extends Error {}
+/**
+ * Carries what the provider said, never who it was for.
+ *
+ * `detail` is assembled from the provider's error name and message, both of
+ * which describe the request rather than the recipient, so it is safe to log.
+ */
+export class EmailSendError extends Error {
+  readonly status: number | null;
+  readonly detail: string | null;
+
+  constructor(message: string, options: { readonly status?: number; readonly detail?: string | null } = {}) {
+    super(message);
+    this.name = "EmailSendError";
+    this.status = options.status ?? null;
+    this.detail = options.detail ?? null;
+  }
+}
 
 /** Pure, so the wording is unit-testable without a mail provider. */
 export function magicLinkEmail(to: string, link: string, ttlMinutes: number): EmailMessage {
