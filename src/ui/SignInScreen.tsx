@@ -138,7 +138,7 @@ export function SignInScreen({ services, focusOnMount = false }: SignInScreenPro
 
         <div className="field-group">
           <label htmlFor="signin-invite">
-            Invite code <span>(if you have one)</span>
+            Invite code <span>(only for new accounts)</span>
           </label>
           <div className="input-wrap">
             <Ticket size={18} />
@@ -152,7 +152,10 @@ export function SignInScreen({ services, focusOnMount = false }: SignInScreenPro
               placeholder="XXXX-XXXX-XXXX"
             />
           </div>
-          <small>Needed the first time, while RabbleBabble is invite-only.</small>
+          <small>
+            Already signed in before? Leave this blank — you only need a code the first time, while RabbleBabble is
+            invite-only.
+          </small>
         </div>
 
         <button className="primary-button" type="submit" disabled={stage === "sending"}>
