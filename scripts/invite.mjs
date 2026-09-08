@@ -1,9 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 /**
  * Mints an invite code and stores its hash.
@@ -109,30 +107,21 @@ const sql =
   "INSERT INTO invite_codes (code_hash, label, max_uses, uses, expires_at, created_at, disabled_at) " +
   `VALUES (${sqlString(hash)}, ${sqlString(label)}, ${maxUses}, 0, NULL, ${now}, NULL);`;
 
-// Written to a file rather than passed with --command: the shell needed to
-// resolve npx on Windows would otherwise word-split the SQL.
-const directory = mkdtempSync(join(tmpdir(), "rb-invite-"));
-const sqlPath = join(directory, "invite.sql");
-writeFileSync(sqlPath, sql);
-
-try {
-  execFileSync(
-    "npx",
-    [
-      "wrangler",
-      "d1",
-      "execute",
-      DATABASE,
-      ...ENV_FLAGS,
-      remote ? "--remote" : "--local",
-      "--file",
-      JSON.stringify(sqlPath),
-    ],
-    { stdio: "inherit", shell: true },
-  );
-} finally {
-  rmSync(directory, { recursive: true, force: true });
-}
+// `--file` goes through wrangler's D1 bulk-import endpoint (upload, then
+// import), which has been known to throw a spurious Cloudflare
+// "Authentication error [code: 10000]" on an OAuth-token session even though
+// the same token works fine against the plain query endpoint that --command
+// uses. Running wrangler's own JS entry point directly through `node`, rather
+// than through the "npx"/"npx.cmd" shim, means there is no shell involved at
+// all -- so the SQL passes through as a single argv entry with no word
+// splitting, and no dependence on a .cmd file being spawnable without a shell
+// (which Windows refuses to do; that combination throws EINVAL).
+const wranglerEntry = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
+execFileSync(
+  process.execPath,
+  [wranglerEntry, "d1", "execute", DATABASE, ...ENV_FLAGS, remote ? "--remote" : "--local", "--command", sql],
+  { stdio: "inherit" },
+);
 
 console.log("");
 console.log(`Invite code: ${code}`);
