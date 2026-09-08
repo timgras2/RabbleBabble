@@ -50,6 +50,29 @@ magic link points at: `APP_ORIGIN` is the single value deciding both. Mail
 leaves from `login@send.rabblebabble.cc` - a sending subdomain, so a delivery
 reputation problem can never reach the domain the app itself lives on.
 
+That subdomain needs five records, not the three Resend asks for. Resend
+verifies DKIM (`resend._domainkey.send`) and the custom Return-Path
+(`send.send`, an MX to its regional SES feedback host and an SPF include), and
+those are what make SPF and DKIM pass and align. The two it never mentions are
+a null MX and an SPF record on `send` itself, and a DMARC policy whose `rua`
+address can actually receive mail. Gmail delivers fine without them. Microsoft
+weighs the header From domain, and a From domain that resolves to nothing at
+all reads to it as not a mail domain - which is what "delivered to Gmail,
+unreliable to Outlook" looks like from the outside. `npm run mailcheck` asserts
+the whole set from a public resolver.
+
+What happens after Resend accepts a message arrives at
+`POST /auth/email-events`, verified by HMAC against `RESEND_WEBHOOK_SECRET`.
+It is not an auth route and carries neither the same-site guard nor the client
+header - a webhook has no Origin - and it lives under `/auth/` only because
+`run_worker_first` covers that prefix and `/hooks/` would be answered by the
+asset handler with the app shell. Without the secret the endpoint returns 404,
+so the feature is additive: an existing deployment keeps sending exactly as it
+did. It records nothing in D1. A bounce is a log line carrying the sha256 of
+the recipient - the same digest the sign-in rate limiter keys on - and never
+the address, which keeps the "no email address in a log" rule intact while
+still letting an operator join a bounce to the sign-in that caused it.
+
 One Worker serves both the app and the API. That is what keeps the session
 cookie first-party, removes CORS entirely, and lets the build-time CSP stay at
 `connect-src 'self'`. `workers_dev` is off for the same reason: a second

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { registerAuthRoutes } from "./auth/routes";
+import { registerEmailRoutes } from "./email/routes";
 import type { SessionUser } from "./auth/session";
 import type { Deps } from "./deps";
 import { ApiError, internalError, toErrorBody } from "./errors";
@@ -67,6 +68,7 @@ export function createApp(deps: Deps): App {
   });
 
   registerAuthRoutes(app);
+  registerEmailRoutes(app);
   registerV1Routes(app);
 
   app.notFound((c) =>

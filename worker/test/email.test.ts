@@ -10,9 +10,36 @@ const LINK = "https://rabblebabble.cc/auth/callback?token=abc123";
 
 type Fetcher = ReturnType<typeof vi.fn<typeof fetch>>;
 
-function sender(respond: () => Response): { fetcher: Fetcher; mailer: ResendEmailSender } {
+/**
+ * Every mailer here gets a sleep that records instead of waiting. The retry
+ * schedule is real time in production; a suite that honoured it would spend
+ * two and a half seconds proving one backoff.
+ */
+function sender(respond: () => Response): {
+  fetcher: Fetcher;
+  mailer: ResendEmailSender;
+  naps: number[];
+} {
   const fetcher = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(respond()));
-  return { fetcher, mailer: new ResendEmailSender("re_test_key", FROM, fetcher) };
+  const naps: number[] = [];
+  const mailer = new ResendEmailSender("re_test_key", FROM, fetcher, (ms) => {
+    naps.push(ms);
+    return Promise.resolve();
+  });
+  return { fetcher, mailer, naps };
+}
+
+/** Answers each call from the list, then repeats the last one forever. */
+function responder(...responses: (() => Response)[]): () => Response {
+  let index = 0;
+  return () => {
+    const next = responses[Math.min(index, responses.length - 1)];
+    index += 1;
+    if (next === undefined) {
+      throw new Error("responder was built with no responses");
+    }
+    return next();
+  };
 }
 
 function requestOf(fetcher: Fetcher): {
@@ -104,7 +131,7 @@ describe("ResendEmailSender", () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockRejectedValue(Object.assign(new Error("timed out"), { name: "TimeoutError" }));
-    const mailer = new ResendEmailSender("re_test_key", FROM, fetcher);
+    const mailer = new ResendEmailSender("re_test_key", FROM, fetcher, () => Promise.resolve());
 
     const thrown: unknown = await mailer.send(magicLinkEmail(RECIPIENT, LINK, 15)).catch((error: unknown) => error);
 
@@ -113,6 +140,72 @@ describe("ResendEmailSender", () => {
     // wrapped rather than left to reach the caller in its own shape.
     expect((thrown as EmailSendError).status).toBeNull();
     expect((thrown as EmailSendError).detail).toBe("TimeoutError");
+  });
+
+  it("retries a rate limit rather than losing the sign-in link", async () => {
+    const { fetcher, mailer, naps } = sender(
+      responder(
+        () => Response.json({ name: "rate_limit_exceeded" }, { status: 429 }),
+        () => Response.json({ id: "sent-on-the-second-try" }),
+      ),
+    );
+
+    // The caller swallows a throw by design, so a dropped 429 has no symptom
+    // at all beyond a user who never gets their mail.
+    await expect(mailer.send(magicLinkEmail(RECIPIENT, LINK, 15))).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(naps).toEqual([500]);
+  });
+
+  it("retries a 5xx up to three attempts and then gives up", async () => {
+    const { fetcher, mailer, naps } = sender(() => new Response("nope", { status: 503 }));
+
+    const thrown: unknown = await mailer.send(magicLinkEmail(RECIPIENT, LINK, 15)).catch((error: unknown) => error);
+
+    expect((thrown as EmailSendError).status).toBe(503);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(naps).toEqual([500, 2_000]);
+  });
+
+  it("does not retry a rejection that retrying cannot fix", async () => {
+    // 422 is a bad From or a bad recipient. Three of those is three times the
+    // latency for the same answer.
+    const { fetcher, mailer, naps } = sender(() => Response.json({ name: "validation_error" }, { status: 422 }));
+
+    await mailer.send(magicLinkEmail(RECIPIENT, LINK, 15)).catch(() => undefined);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(naps).toEqual([]);
+  });
+
+  it("keeps one idempotency key across the retries, so a retry cannot double-send", async () => {
+    const { fetcher, mailer } = sender(
+      responder(
+        () => new Response("", { status: 500 }),
+        () => Response.json({ id: "one-mail-only" }),
+      ),
+    );
+
+    await mailer.send(magicLinkEmail(RECIPIENT, LINK, 15));
+
+    const keys = fetcher.mock.calls.map(([, init]) => new Headers(init?.headers).get("Idempotency-Key"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("waits as long as Retry-After asks, within reason", async () => {
+    const { mailer, naps } = sender(
+      responder(
+        () => new Response("", { status: 429, headers: { "Retry-After": "3" } }),
+        // A provider asking for a minute does not get to hold the isolate.
+        () => new Response("", { status: 429, headers: { "Retry-After": "60" } }),
+      ),
+    );
+
+    await mailer.send(magicLinkEmail(RECIPIENT, LINK, 15)).catch(() => undefined);
+
+    expect(naps).toEqual([3_000, 5_000]);
   });
 
   it("gives up on Resend after ten seconds", async () => {
@@ -145,6 +238,26 @@ describe("magicLinkEmail", () => {
 
     expect(message.html).not.toContain("<script>");
     expect(message.html).toContain("&amp;next=&quot;&gt;&lt;script&gt;");
+  });
+
+  it("sends a whole HTML document, not a fragment", () => {
+    const message = magicLinkEmail(RECIPIENT, LINK, 15);
+
+    // Gmail renders a bare <div> happily. Microsoft's content filter scores
+    // one, and this mail has no margin to give away: it is already a short
+    // note with a single coloured button and an opaque token in the href.
+    expect(message.html.startsWith("<!doctype html>")).toBe(true);
+    expect(message.html).toContain('<meta charset="utf-8">');
+    expect(message.html).toContain("<title>Your RabbleBabble sign-in link</title>");
+    expect(message.html.endsWith("</html>")).toBe(true);
+  });
+
+  it("shows the link as text as well as behind the button", () => {
+    const message = magicLinkEmail(RECIPIENT, LINK, 15);
+
+    // Anchor text that matches its destination is the signal filters look for,
+    // and the fallback for the Outlook clients that mangle the button.
+    expect(message.html).toContain(`>${LINK}</a>`);
   });
 
   it("says how long the link lasts", () => {
@@ -187,6 +300,20 @@ describe("readConfig, email settings", () => {
     );
     expect(readConfig(resend()).emailFrom).toBe(FROM);
     expect(readConfig(resend()).resendApiKey).toBe("re_test_key");
+  });
+
+  it("treats the webhook secret as optional, so adding webhooks cannot break a deploy", () => {
+    expect(readConfig(resend()).resendWebhookSecret).toBe("");
+    expect(readConfig(resend({ RESEND_WEBHOOK_SECRET: "  " })).resendWebhookSecret).toBe("");
+    expect(readConfig(resend({ RESEND_WEBHOOK_SECRET: "whsec_dGVzdC13ZWJob29rLXNlY3JldA==" })).resendWebhookSecret).toBe(
+      "whsec_dGVzdC13ZWJob29rLXNlY3JldA==",
+    );
+  });
+
+  it("refuses a webhook secret that was truncated on the way in", () => {
+    // The failure mode without this is a silent 401 storm against Resend's
+    // retry queue, which shows up nowhere the operator is looking.
+    expect(() => readConfig(resend({ RESEND_WEBHOOK_SECRET: "whsec_abc" }))).toThrow(/truncated/);
   });
 
   it("keeps the placeholder usable in console mode, which never dials out", () => {

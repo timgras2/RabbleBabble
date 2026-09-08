@@ -33,8 +33,14 @@ export async function hashIp(ip: string, pepper: string): Promise<string> {
   return sha256Hex(`${pepper}:${ip}`);
 }
 
-/** Constant-time comparison for two hex digests of equal length. */
-export function safeEqualHex(a: string, b: string): boolean {
+/**
+ * Constant-time comparison of two ASCII strings.
+ *
+ * Length is compared first and in variable time, which leaks only the length -
+ * and every caller compares values of a fixed length anyway: a hex digest, or
+ * a base64 HMAC.
+ */
+export function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {
     return false;
   }

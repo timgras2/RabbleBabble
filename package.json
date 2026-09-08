@@ -26,7 +26,8 @@
     "db:migrate:staging": "wrangler d1 migrations apply rabblebabble-staging --remote --env staging",
     "worker:types:check": "wrangler types worker/worker-configuration.d.ts --check",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:prod": "node scripts/smoke.mjs https://rabblebabble.cc --read-only"
+    "smoke:prod": "node scripts/smoke.mjs https://rabblebabble.cc --read-only",
+    "mailcheck": "node scripts/mailcheck.mjs"
   },
   "dependencies": {
     "hono": "^4.13.7",

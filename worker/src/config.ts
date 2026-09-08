@@ -29,6 +29,8 @@ export interface Config {
   readonly groqBaseUrl: string;
   readonly groqApiKey: string;
   readonly resendApiKey: string;
+  /** Empty when delivery webhooks are not configured, which disables them. */
+  readonly resendWebhookSecret: string;
   readonly ipHashPepper: string;
 }
 
@@ -118,6 +120,27 @@ function requireSendableAddress(env: Env, name: keyof Env): string {
 }
 
 /**
+ * Optional, and the only optional secret in here.
+ *
+ * Delivery webhooks are pure observability: without them the app sends mail
+ * exactly as it did before, it just cannot tell you what became of it. Making
+ * this required would mean an existing deployment stops booting on the deploy
+ * that adds the feature, which is a bad trade for a diagnostic.
+ */
+function optionalWebhookSecret(env: Env): string {
+  const value = typeof env.RESEND_WEBHOOK_SECRET === "string" ? env.RESEND_WEBHOOK_SECRET.trim() : "";
+  if (value === "") {
+    return "";
+  }
+  // Svix secrets are `whsec_` + base64. A truncated paste is the mistake worth
+  // catching, and catching it at boot beats catching it as a 401 storm.
+  if (value.replace(/^whsec_/, "").length < 16) {
+    throw new ConfigError("RESEND_WEBHOOK_SECRET looks truncated; it should be whsec_ followed by a base64 key");
+  }
+  return value;
+}
+
+/**
  * Named rather than reusing requireString, purely for the message: this is the
  * one configuration mistake whose only other symptom is mail that silently
  * never arrives.
@@ -182,6 +205,7 @@ export function readConfig(env: Env): Config {
     groqApiKey: requireString(env, "GROQ_API_KEY"),
     // Only needed when actually sending mail; console mode runs without one.
     resendApiKey: sending ? requireResendApiKey(env) : "",
+    resendWebhookSecret: sending ? optionalWebhookSecret(env) : "",
     ipHashPepper: requireString(env, "IP_HASH_PEPPER"),
   };
 }

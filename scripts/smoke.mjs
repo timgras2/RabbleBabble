@@ -103,6 +103,21 @@ async function run() {
   // would orphan every existing install.
   check("the manifest declares an id", typeof manifestBody?.id === "string");
 
+  console.log("\ndelivery webhook");
+  // Safe against production and worth gating on: an unsigned POST must never
+  // be accepted. A 404 means no signing secret is set, which is a legitimate
+  // deployment; what must never happen is a 2xx.
+  const unsigned = await fetch(`${baseUrl}/auth/email-events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "email.bounced" }),
+  });
+  check(
+    "an unsigned delivery webhook is refused (401 when configured, 404 when not)",
+    unsigned.status === 401 || unsigned.status === 404,
+    `got ${unsigned.status}`,
+  );
+
   console.log("\nsign-in");
   if (readOnly) {
     console.log("  skip  sign-in (--read-only: this would send a real email on every deploy)");

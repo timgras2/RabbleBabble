@@ -1,4 +1,4 @@
-import { randomToken, safeEqualHex, sha256Hex } from "./crypto";
+import { randomToken, safeEqual, sha256Hex } from "./crypto";
 
 export interface MagicLinkToken {
   readonly token: string;
@@ -86,7 +86,7 @@ export async function consumeMagicLink(
     if (options.nonce === null) {
       return { ok: false, reason: "link-wrong-device" };
     }
-    if (!safeEqualHex(await sha256Hex(options.nonce), row.request_nonce_hash)) {
+    if (!safeEqual(await sha256Hex(options.nonce), row.request_nonce_hash)) {
       return { ok: false, reason: "link-wrong-device" };
     }
   }

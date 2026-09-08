@@ -96,7 +96,7 @@ node scripts/invite.mjs --staging                    # ...against staging
 node scripts/user.mjs --show you@example.com         # inspect an account
 node scripts/user.mjs --unsuspend you@example.com --remote   # the recovery path
 
-npm run smoke                    # 22 end-to-end checks against the running Worker
+npm run smoke                    # 23 end-to-end checks against the running Worker
 npm run smoke:prod               # the read-only subset, safe against production
 ```
 
@@ -133,6 +133,17 @@ the point of the whole design.
   the failure by design), `[startup]` (a configuration mistake, served as a
   generic 500), and `"event":"sweep-failed"` (the hourly cron is no longer
   reclaiming leaked budget).
+- **The delivery alert that matters most** is `"event":"email-event"` with
+  `"type":"email.bounced"` or `"email.complained"`. A bounce is never a one-off:
+  Resend adds the address to its suppression list, after which every later send
+  to it returns 200 with a fresh message id and is discarded. Without this line
+  an account can be permanently unreachable while the logs say `email-sent`
+  every single time. The address appears only as `recipientHash`, the same
+  digest `auth/request-link` rate-limits on; turning it back into a person is a
+  deliberate act, not something a log reader does by accident.
+- **`"event":"email-event-rejected"`** means something posted to the webhook
+  endpoint that Resend did not sign. A burst of `mismatch` just after a deploy
+  is a signing secret rotated in one place and not the other.
 - **A weekly usage summary** is written by the cron itself on Mondays at 06:xx
   UTC as `"event":"weekly-usage"` -- counts only, from the numbers already in
   `usage_daily`.
@@ -175,17 +186,49 @@ The committed `wrangler.jsonc` **is** production: `wrangler deploy` runs with no
    names without the zone suffix (`resend._domainkey.send`, not
    `resend._domainkey.send.rabblebabble.cc`), and set every record to **DNS
    only**, since a proxied record fails Resend's check with error 1004.
-3. Add DMARC on the root: TXT `_dmarc` = `v=DMARC1; p=none;
-   rua=mailto:dmarc@rabblebabble.cc;`. Start at `p=none`; tighten only once
-   reports show mail passing.
+3. Add the three records Resend does **not** ask for. Resend verifies only what
+   it needs to sign and to route bounces, and a domain can be green in its
+   dashboard while Microsoft still treats it as junk. Run `npm run mailcheck`
+   after each of these; it checks the whole set from a public resolver.
+   - TXT `_dmarc` = `v=DMARC1; p=none; rua=mailto:<a mailbox that exists>`.
+     Start at `p=none`, move to `p=quarantine` once reports are clean. The
+     `rua` address has to be somewhere mail can actually be delivered — a
+     report address on a domain with no MX means aggregate reports are
+     generated, sent and dropped, which is how a delivery problem runs for
+     weeks with nothing to look at.
+   - MX `send` = priority `0`, target `.` — the RFC 7505 null MX. The From
+     domain is send-only and this says so. Without any MX or A record of its
+     own, `send.rabblebabble.cc` is an *empty non-terminal*: it has children in
+     DNS but resolves to nothing itself. Gmail does not care. Microsoft checks
+     the header From domain, and a domain that resolves to nothing is not a
+     mail domain to it.
+   - TXT `send` = `v=spf1 include:amazonses.com ~all`. Classic SPF checks the
+     envelope sender, so this is not what makes SPF pass — the record on
+     `send.send` already does that. Microsoft's filters weigh the header From
+     domain's own DNS presence, and there "no record at all" scores worse than
+     a record that ends in a soft fail. `~all` rather than `-all`: nothing ever
+     uses this domain as an envelope sender, so a hard fail adds no alignment
+     that DKIM does not already give, and it would reject real mail the day
+     Resend sends from an IP outside the `amazonses.com` include.
 4. Set the secrets: `npx wrangler secret put GROQ_API_KEY`, then
    `RESEND_API_KEY` and `IP_HASH_PEPPER` the same way. Scope the Resend key to
    sending access on `send.rabblebabble.cc`.
-5. Add the custom domain in the Cloudflare dashboard (Workers & Pages →
+5. Turn on delivery webhooks. They are the only way to learn what became of a
+   message after Resend accepted it: a 200 from the send API means accepted,
+   not delivered. In Resend → Webhooks, add an endpoint at
+   `https://rabblebabble.cc/auth/email-events` subscribed to `email.sent`,
+   `email.delivered`, `email.delivery_delayed`, `email.bounced`,
+   `email.complained` and `email.failed`. Leave open and click tracking
+   **off** — both work by rewriting the message, and both cost the
+   deliverability this is here to measure. Then
+   `npx wrangler secret put RESEND_WEBHOOK_SECRET` with the signing secret
+   Resend shows (`whsec_...`). It is optional everywhere: without it the
+   endpoint returns 404 and nothing else about sending changes.
+6. Add the custom domain in the Cloudflare dashboard (Workers & Pages →
    rabblebabble → Domains & Routes) and confirm it resolves. The `routes` block
    in `wrangler.jsonc` then keeps it, but the first attachment needs an API
    token carrying `Zone:DNS:Edit` and `Workers Routes:Edit`.
-6. `npm run db:migrate` then `npm run deploy`.
+7. `npm run db:migrate` then `npm run deploy`.
 
 **Do not deploy with `EMAIL_MODE=resend` before step 2 completes.** Resend will
 only deliver to addresses other than your own account's once a sending domain
@@ -194,6 +237,15 @@ design so it cannot leak account existence, and the API still answers
 `202 {"status":"sent"}` — a misconfiguration that looks exactly like success.
 `npx wrangler tail` is where it shows: a `magic-link-send-failed` line carrying
 Resend's error name instead of an `email-sent` line carrying a message id.
+
+Two more lines to watch there. `email-send-retry` means Resend answered 429 or
+5xx and the send is being retried — a few are normal under a burst, a steady
+stream is a rate limit worth raising. And `email-sent` now carries `attempts`:
+anything above 1 is a send that used to be lost silently, because the caller
+swallows the error by design and the user is told to check their email either
+way. An `email-sent` line is still only proof that Resend *accepted* the
+message; whether the receiver kept it is a question only Resend's own delivery
+log and DMARC reports can answer.
 
 The app and the API must stay on one origin. That is what keeps the session
 cookie first-party, removes CORS, and lets the build-time CSP stay at
