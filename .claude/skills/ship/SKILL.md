@@ -78,6 +78,19 @@ needs a deploy when the right column says yes. If a change is docs-only, push
 it and say plainly that no Worker deploy was needed — do not deploy for the
 sake of it.
 
+**Presentation-only exception.** A `src/` change counts as "yes" for the
+Worker in the table above because the Worker serves the same static bundle —
+but that only matters when the change could alter *behavior*. If every
+changed line is CSS, or JSX markup/`className`/copy text with no `.ts`/`.tsx`
+logic, hook, state, or API call touched, treat it as Pages-only: it cannot
+affect auth, quotas, D1, or any route the Worker actually executes, only
+assets it already serves byte-for-byte identically either way. Skip step 5
+and step 6 for that diff — Pages' own CI already ran lint/test/build, so
+redoing the full local gate plus a staging deploy and smoke test buys nothing.
+Say plainly that the change was presentation-only and the Worker steps were
+skipped for that reason. If a single commit mixes a presentation tweak with
+even one logic change, the whole commit follows the normal path.
+
 ## 3. Gate locally
 
 ```bash
