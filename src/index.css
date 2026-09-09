@@ -402,12 +402,12 @@ h1 { margin: 0 0 var(--space-3); color: var(--ink); font-size: var(--text-displa
 .setting-row div { display: grid; gap: var(--space-1); }
 .setting-row strong { color: var(--ink-3); font-size: var(--text-sm); }
 .setting-row span { color: var(--muted-3); font-size: var(--text-2xs); }
-.toggle { position: relative; width: 45px; height: 26px; padding: var(--space-1); border: 0; border-radius: var(--radius-xl); flex: 0 0 auto; background: var(--lip); transition: background var(--motion-slow) ease; }
+.toggle { position: relative; width: 45px; height: 26px; padding: var(--space-1); border: 0; border-radius: var(--radius-xl); flex: 0 0 auto; display: flex; align-items: center; background: var(--lip); transition: background var(--motion-slow) ease; }
 /* Keeps the switch visually small while giving it a 44px-tall hit area. */
 .toggle::after { content: ""; position: absolute; top: -9px; right: 0; bottom: -9px; left: 0; }
 .toggle span { width: 20px; height: 20px; display: block; border-radius: 50%; background: var(--surface); transition: transform var(--motion-slow) ease; }
 .toggle--on { background: var(--ink); }
-.toggle--on span { transform: translateX(19px); }
+.toggle--on span { transform: translateX(17px); }
 .model-note { margin: var(--space-1) 0 var(--space-6); padding: var(--space-4) var(--space-4); border-radius: var(--radius-md); display: grid; gap: var(--space-1); background: var(--surface-muted); }
 .model-note span, .model-note small { color: var(--muted-3); font-size: var(--text-2xs); }
 .model-note strong { color: var(--ink-4); font-size: var(--text-sm); }
